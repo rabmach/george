@@ -26,7 +26,7 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
   pinned over george's body while george is focused, then drops below any
   other window you alt-tab to (so it never floats over your actual work),
   and re-pins the moment you return to george. It also hides under george's
-  dialogs, follows resizes, and dies with george.
+  dialogs, follows resizes, and dies with george. Listen, I know this is weird, but, random Leave it to Beaver episodes is hilarious so it's in and it's staying.
 - **Top bar** — clock plus a chip per running/minimized window (via wmctrl).
   Display-only since going keyboard-first; alt-tab / your WM's keys manage
   windows as always.
