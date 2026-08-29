@@ -17,7 +17,7 @@ Jetson-grade TUI control center. One python process (stdlib + urwid only,
   mouse input is disabled, arrows + enter drive everything.
 - **SHOWCASE + TV** lower center — left block is free display space
   (`[showcase]` lines in `buttons.toml`); right block is CH 57: george
-  docks a borderless mpv window exactly over it, shuffling public-domain
+  docks a borderless mpv window exactly over it (I actually drag it to the right a bit), shuffling public-domain
   *Leave It to Beaver* episodes streamed straight from archive.org
   (`[tv]` in `buttons.toml`; regenerate lineup with `tools/mktv.py`).
   The player runs with mpv default key bindings disabled
