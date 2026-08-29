@@ -1,6 +1,6 @@
 # george
 
-Jetson-grade TUI control center. One python process (stdlib + urwid only,
+TUI sort of a "control center" for your Debian desktop because why the hell not. One python process (stdlib + urwid only,
 ~30 MB RAM, ~0% idle CPU) that opens fullscreen at X login and gives you:
 
 ![george screenshot](27aug-george.jpg)
