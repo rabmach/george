@@ -22,7 +22,7 @@ Jetson-grade TUI control center. One python process (stdlib + urwid only,
   (`[tv]` in `buttons.toml`; regenerate lineup with `tools/mktv.py`).
   The player runs with mpv default key bindings disabled
   (`--no-input-default-bindings`) so it can't be paused or quit on its own —
-  it only dies with george. It stays
+  it only dies with george (although it can be paused by the TV 57 channel switch in the left column). It stays
   pinned over george's body while george is focused, then drops below any
   other window you alt-tab to (so it never floats over your actual work),
   and re-pins the moment you return to george. It also hides under george's
