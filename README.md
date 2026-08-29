@@ -20,8 +20,9 @@ Jetson-grade TUI control center. One python process (stdlib + urwid only,
   docks a borderless mpv window exactly over it, shuffling public-domain
   *Leave It to Beaver* episodes streamed straight from archive.org
   (`[tv]` in `buttons.toml`; regenerate lineup with `tools/mktv.py`).
-  The player runs with mpv keyboard input disabled (`--input=no`) so it
-  can't be paused or quit on its own — it only dies with george. It stays
+  The player runs with mpv default key bindings disabled
+  (`--no-input-default-bindings`) so it can't be paused or quit on its own —
+  it only dies with george. It stays
   pinned over george's body while george is focused, then drops below any
   other window you alt-tab to (so it never floats over your actual work),
   and re-pins the moment you return to george. It also hides under george's
@@ -55,14 +56,19 @@ close-on-exit.
 
 ## Configuration
 
-george reads `buttons.toml` in this repo by default — a portable demo with
-common, on-PATH commands so it works out of the box for anyone. To keep your
-**personal** button set separate (and out of any public fork), copy it and
-point george at your copy:
+Config resolution, in order of preference:
+
+1. `$GEORGE_CONFIG` — if set, used verbatim.
+2. `~/.config/george/buttons.toml` — your personal copy, if it exists.
+3. `buttons.toml` in this repo — the portable demo with common on-PATH
+   commands, used only when you have no personal config yet.
+
+So the demo ships and works out of the box, but as soon as you create a
+personal config at `~/.config/george/buttons.toml` george uses that instead
+(keeping your button set out of any public fork). To make your own:
 
     mkdir -p ~/.config/george
     cp buttons.toml ~/.config/george/buttons.toml
-    export GEORGE_CONFIG="$HOME/.config/george/buttons.toml"   # in session startup
 
 Press `r` inside george to reload after editing either file.
 

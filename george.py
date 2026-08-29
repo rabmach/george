@@ -41,7 +41,12 @@ except ModuleNotFoundError:
 
 APP = "george"
 HERE = Path(__file__).resolve().parent
-CONFIG_PATH = Path(os.environ.get("GEORGE_CONFIG") or HERE / "buttons.toml")
+_PERSONAL_CFG = Path("~/.config/george/buttons.toml").expanduser()
+_env_cfg = os.environ.get("GEORGE_CONFIG") or ""
+if _env_cfg:
+    CONFIG_PATH = Path(_env_cfg)
+else:
+    CONFIG_PATH = _PERSONAL_CFG if _PERSONAL_CFG.is_file() else HERE / "buttons.toml"
 DATA_DIR = Path("~/.local/share/george").expanduser()
 CACHE_DIR = Path("~/.cache/george").expanduser()
 EVENTS_FILE = DATA_DIR / "events.txt"
@@ -107,6 +112,10 @@ def gauge(frac, width=10):
 
 
 def tv_px_rect(wx, wy, ww, wh, cols, rows):
+    # Terminal size may not be known yet at startup (get_cols_rows() can
+    # return 0); never divide by zero here.
+    if not cols or not rows:
+        cols, rows = 80, 25
     twv = max(40, int(cols * 0.38))
     c0 = cols - 35 - twv
     c1 = cols - 35 - 1
@@ -993,6 +1002,7 @@ class App:
         if not rect:
             self.log("tv: couldn't locate CH57 block (is george mapped?)",
                      "warn")
+            self._retry_tv()
             return
         if self._radio_proc is not None and self._radio_proc.poll() is None:
             if self._freeze(self._radio_proc):
@@ -1001,7 +1011,7 @@ class App:
         args = ["mpv", "--no-border", f"--title={TV_TITLE}",
                 "--loop-playlist", "--shuffle", "--osc=no",
                 "--force-window=yes", "--fullscreen=no",
-                "--keepaspect=yes", "--input=no",
+                "--keepaspect=yes", "--no-input-default-bindings",
                 "--really-quiet", f"--playlist={pl}"]
         args.append(f"--geometry={rect[2]}x{rect[3]}+{rect[0]}+{rect[1]}")
         try:
@@ -1161,6 +1171,16 @@ class App:
             self.log("tv off", "ok")
         else:
             self.tv_start()
+
+    def _retry_tv(self):
+        tries = getattr(self, "_tv_retries", 0)
+        if tries >= 10:
+            self._tv_retries = 0
+            return
+        self._tv_retries = tries + 1
+        if self._tv_proc is not None and self._tv_proc.poll() is None:
+            return
+        self.loop.set_alarm_in(1.0, self.tv_start)
 
     # ---- SCRATCH capture pad ----------------------------------------
     def _stamp_pad(self):
