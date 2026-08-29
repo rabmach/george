@@ -3,6 +3,8 @@
 Jetson-grade TUI control center. One python process (stdlib + urwid only,
 ~30 MB RAM, ~0% idle CPU) that opens fullscreen at X login and gives you:
 
+![george screenshot](27aug-george.jpg)
+
 - **LAUNCH** column — config-driven buttons that launch whatever is on your
   `$PATH` (your own scripts, apps, system tools). Configure in `buttons.toml`
   (a portable demo ships; copy it and point `GEORGE_CONFIG` at your own copy
