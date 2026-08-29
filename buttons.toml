@@ -58,7 +58,7 @@ kind = "link"
 
 [showcase]
 lines = [
-  "WELCOME TO THE JETSON AGE",
+  "Handy scratch to notes or email",
   "this block is yours to fill.",
   "edit [showcase] lines in buttons.toml",
 ]
