@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.bak-fr
+george-crash.log
+
+# Personal scripts stay private — only bin/george (the launcher) ships.
+# Ignore every other file under bin/ so they never leak.
+/bin/*
+!/bin/george

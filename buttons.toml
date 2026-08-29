@@ -1,0 +1,89 @@
+# george control center — portable demo config.
+# Buttons launch whatever is on your $PATH. This file ships with george and
+# lists common tools most systems already have, so it works out of the box.
+# Throw away anything you don't use; add whatever you like. Press r inside
+# george to reload after editing.
+#
+# To keep your PERSONAL button set out of the public repo, copy this file
+# to ~/.config/george/buttons.toml, edit that copy, and set
+#   export GEORGE_CONFIG="$HOME/.config/george/buttons.toml"
+# (e.g. in your WM/X session startup) so george reads yours instead.
+#
+# term = true  -> command runs inside a new terminal window
+# term = false -> command runs detached as-is (GUI apps)
+# hold: default true for term buttons — window stays open after the command
+# exits, showing its exit code, until you press enter. Set hold = false on a
+# per-item basis to let the window close immediately instead.
+
+[[section]]
+title = "SYSTEM"
+items = [
+  { label = "htop",    cmd = "htop",       term = true },
+  { label = "neofetch", cmd = "neofetch",   term = true },
+  { label = "df -h",   cmd = "df -h",      term = true },
+  { label = "free -h", cmd = "free -h",    term = true },
+]
+
+[[section]]
+title = "APPS"
+items = [
+  { label = "file manager", cmd = "xdg-open .", term = false },
+  { label = "browser",      cmd = "xdg-open about:blank", term = false },
+  { label = "calculator",   cmd = "xcalc",    term = false },
+  { label = "terminal",     cmd = "${TERM:-x-terminal-emulator}", term = true },
+]
+
+# Navigate onto a SYSTEM pane below and press enter to open a matching tool:
+[click]
+cpu  = { cmd = "htop", term = true }
+mem  = { cmd = "free -h", term = true }
+net  = { cmd = "iftop", term = true }
+io   = { cmd = "iotop", term = true }
+disk = { cmd = "ncdu /", term = true }
+
+# FEEDS & LINKS -- up to 12 slots; kind = "rss" fetches titles and each
+# title opens its article; kind = "link" is one clickable row.
+
+[[link]]
+name = "HACKER NEWS"
+url = "https://hnrss.org/frontpage"
+kind = "rss"
+
+[[link]]
+name = "DEBIAN NEWS"
+url = "https://www.debian.org/News/news"
+kind = "link"
+
+# SHOWCASE -- the lower-left center block. Pure display; edit at will.
+
+[showcase]
+lines = [
+  "WELCOME TO THE JETSON AGE",
+  "this block is yours to fill.",
+  "edit [showcase] lines in buttons.toml",
+]
+
+# TV -- docks a borderless mpv window over the lower-right center block.
+#   enable   = true/false
+#   title    = label on the block + log line (window itself is borderless)
+#   playlist = m3u file of stream/episode URLs (mpv --shuffle --loop-playlist)
+#              relative to the george repo, or an absolute/`~` path.
+#   Needs X. Docks over the block, follows resizes, dies with george.
+#   Regenerate the lineup with:  python3 tools/mktv.py <out.m3u>
+
+[tv]
+enable = true
+title = "CH 57"
+playlist = "tv/beaver.m3u"
+# ---- manual dock override (pixels, relative to george window) ----
+# Leave the four below commented to auto-trace the CH 57 block. Uncomment
+# and set any/all to pin mpv's dock rect exactly; edit + `r` reload applies.
+# x = 0
+# y = 0
+# w = 0
+# h = 0
+
+# Radio chip (bottom of the LAUNCH column; `m` key toggles):
+[radio]
+url = "https://wicn-ice.streamguys1.com/live-mp3"
+label = "WICN"

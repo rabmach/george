@@ -1,0 +1,7 @@
+#!/bin/sh
+# George launcher. Installed as ~/bin/george; resolves george.py relative
+# to this script's own location so it survives cloning to any path.
+# (One-line usage:  ~/bin/george  or  /path/to/george/bin/george)
+here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+exec alacritty --title george --class georges \
+    -e python3 "$here/../george.py" "$@"
