@@ -15,7 +15,7 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
   press enter to open the matching tool (iotop, iftop, ncdu, btop...) in a
   new terminal; mapping is in `[click]` of `buttons.toml`. Keyboard-first:
   mouse input is disabled, arrows + enter drive everything.
-- **SHOWCASE + TV** lower center — left block is free display space
+- **SHOWCASE + TV** lower center — left block is a wicked handy scratch space that you can save as a note or send off as an email, and, you may keep doing it.
   (`[showcase]` lines in `buttons.toml`); right block is CH 57: george
   docks a borderless mpv window exactly over it (I actually drag it to the right a bit), shuffling public-domain
   *Leave It to Beaver* episodes streamed straight from archive.org
