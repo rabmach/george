@@ -18,6 +18,7 @@ import re
 import shlex
 import signal
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -724,6 +725,7 @@ class App:
         self._tv_manual = False
         self._tv_stack_last = None
         self._tv_paused = False
+        self._vidwin_proc = None
         self._radio_paused = False
         self._nina_proc = None
         self._nina_paused = False
@@ -1021,12 +1023,21 @@ class App:
             if self._freeze(self._nina_proc):
                 self._nina_paused = True
                 self.log("nina paused for tv", "info")
-        args = ["mpv", "--no-border", f"--title={TV_TITLE}",
-                "--loop-playlist", "--shuffle", "--osc=no",
-                "--force-window=yes", "--fullscreen=no",
-                "--keepaspect=yes", "--no-input-default-bindings",
+        xid = self._vidwin_create(rect)
+        if not xid:
+            self.log("tv: embedded window failed (george-vidwin?)", "warn")
+            self._retry_tv()
+            return
+        sock = str(Path("~/.local/state").expanduser() / "george-tv.sock")
+        try:
+            Path(sock).unlink(missing_ok=True)
+        except OSError:
+            pass
+        ic = self._tv_input_conf()
+        args = ["mpv", f"--wid={xid}", "--loop-playlist", "--shuffle",
+                "--osc=no", "--keepaspect=yes",
+                f"--input-ipc-server={sock}", f"--input-conf={ic}",
                 "--really-quiet", f"--playlist={pl}"]
-        args.append(f"--geometry={rect[2]}x{rect[3]}+{rect[0]}+{rect[1]}")
         try:
             cols, nrows = self.loop.screen.get_cols_rows()
         except Exception:
@@ -1048,6 +1059,128 @@ class App:
             self.log(f"tv on: {tvcfg.get('title', 'CHANNEL 57')}", "accent")
         except OSError as e:
             self.log(f"tv failed: {e}", "crit")
+
+    def _retake_focus(self, loop=None, tries=14):
+        # retired: the CH57 video now renders into a WM-invisible X window
+        # (see _vidwin_*) that the WM never focuses, so there is no focus
+        # to retake. Kept as a no-op in case a stale alarm is still queued.
+        return
+
+    def _vidwin_path(self):
+        for cand in (str(Path.home() / "bin" / "george-vidwin"),
+                     str(HERE / "george-vidwin")):
+            if Path(cand).is_file():
+                return cand
+        return shutil.which("george-vidwin")
+
+    def _vidwin_up(self):
+        proc = self._vidwin_proc
+        if proc is not None and proc.poll() is None:
+            return True
+        path = self._vidwin_path()
+        if not path:
+            return False
+        try:
+            self._vidwin_proc = subprocess.Popen(
+                [path], stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, bufsize=1, start_new_session=True)
+        except OSError:
+            self._vidwin_proc = None
+            return False
+        return True
+
+    def _vidwin_send(self, line, reply=False, timeout=3.0):
+        proc = self._vidwin_proc
+        if proc is None or proc.poll() is not None or proc.stdin is None:
+            return None
+        try:
+            proc.stdin.write(line + "\n")
+            proc.stdin.flush()
+            if reply and proc.stdout is not None:
+                got = proc.stdout.readline()
+                return got.strip() if got else None
+        except (OSError, ValueError):
+            self._vidwin_teardown()
+            return None
+        return None
+
+    def _vidwin_create(self, rect):
+        if not self._vidwin_up():
+            return None
+        out = self._vidwin_send(
+            " ".join(("create",) + tuple(str(int(v)) for v in rect)),
+            reply=True)
+        if out and out.startswith("VIDWIN "):
+            return out.split()[1]
+        return None
+
+    def _vidwin_sync(self, rect):
+        if self._vidwin_proc is None:
+            return
+        self._vidwin_send(
+            " ".join(("move",) + tuple(str(int(v)) for v in rect)))
+        self._vidwin_send("raise")
+
+    def _vidwin_clear(self):
+        if self._vidwin_proc is not None:
+            self._vidwin_send("unmap")
+
+    def _vidwin_teardown(self):
+        proc, self._vidwin_proc = self._vidwin_proc, None
+        if proc is None or proc.stdin is None:
+            return
+        try:
+            proc.stdin.write("quit\n")
+            proc.stdin.flush()
+        except (OSError, ValueError):
+            pass
+        try:
+            proc.wait(timeout=3)
+        except (OSError, subprocess.SubprocessError):
+            proc.kill()
+
+    def _tv_input_conf(self):
+        path = Path("~/.config/george").expanduser()
+        path.mkdir(parents=True, exist_ok=True)
+        conf = path / "tv-input.conf"
+        if not conf.is_file():
+            conf.write_text(
+                "MOUSE_BTN0 cycle pause\n"
+                "MOUSE_BTN0_DBL ignore\n"
+                "MOUSE_BTN1 ignore\n"
+                "MOUSE_BTN2 cycle pause\n")
+        return str(conf)
+
+    def tv_ipc(self, cmd):
+        sock = Path("~/.local/state").expanduser() / "george-tv.sock"
+        if not sock.is_socket():
+            return None
+        try:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.settimeout(2.5)
+            s.connect(str(sock))
+            req = json.dumps({"command": cmd, "request_id": 1}) + "\n"
+            s.sendall(req.encode())
+            buf = b""
+            while True:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+                if b'"request_id":1' in buf:
+                    break
+            s.close()
+            for line in buf.splitlines():
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                if obj.get("request_id") == 1:
+                    return obj.get("data")
+        except (OSError, socket.error):
+            return None
+        return None
 
     def _tv_win_id(self):
         txt = wm_raw()
@@ -1113,6 +1246,12 @@ class App:
                 proc.wait(timeout=5)
             except (OSError, subprocess.SubprocessError):
                 pass
+        self._vidwin_clear()
+        try:
+            Path("~/.local/state").expanduser().joinpath(
+                "george-tv.sock").unlink(missing_ok=True)
+        except OSError:
+            pass
         if self._radio_paused:
             rp, self._radio_paused = self._radio_proc, False
             if rp is not None and rp.poll() is None:
@@ -1475,29 +1614,16 @@ class App:
             self._tv_proc = None
             self._tv_paused = False
             self.log(f"tv player exited (rc={rc}); see george-tv.log", "warn")
-        mwid = self._tv_win_id()
-        if mwid is None or self.modal:
+        if self._tv_proc is None:
+            self._vidwin_clear()
             return
         rect = self._tv_target_rect()
         if not rect:
             return
-        key = ",".join(map(str, rect))
-        dock_changed = self._tv_dock is not None and key != ",".join(
-            map(str, self._tv_dock))
-        if dock_changed:
-            self._tv_dock = rect
-            self._tv_manual = False
-            self._reapply_tv(rect)
-            return
-        if self._tv_manual:
-            return
-        if self._tv_moved_away(rect):
-            self._tv_manual = True
-            self.log("tv moved away - use restore (see footer) to re-dock",
-                     "info")
-            return
-        if key != self._tv_geom_last:
-            self._reapply_tv(rect)
+        if self.modal:
+            self._vidwin_clear()
+        else:
+            self._vidwin_sync(rect)
 
     def restore_tv(self):
         self._tv_manual = False
@@ -1828,6 +1954,7 @@ class App:
 
     def open_modal(self, dlg):
         self.modal = dlg
+        self._vidwin_clear()
         self.tv_apply_stack()
         wrapped = urwid.AttrMap(dlg, {
             None: "modal", "btn": "mfield", "dim": "mdim",
@@ -1959,7 +2086,16 @@ class App:
                 continue
             if self.modal:
                 continue
+            tv_live = (self._tv_proc is not None and
+                       self._tv_proc.poll() is None)
+            if k == " " and tv_live:
+                self.tv_ipc(["cycle", "pause"])
+                continue
             if k == "q":
+                if tv_live:
+                    self.tv_stop()
+                    self.log("tv off", "ok")
+                    continue
                 raise urwid.ExitMainLoop
             elif k == "?":
                 self.help_dialog()
@@ -2084,6 +2220,7 @@ class App:
             pass
         finally:
             self.tv_stop()
+            self._vidwin_teardown()
             self.radio_stop(silent=True)
             self.nina_stop(silent=True)
 

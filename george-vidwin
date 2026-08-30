@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""george-vidwin: long-lived X11 helper that owns the embedded CH57 video
+window. george feeds it commands on stdin; it holds one X connection so the
+override-redirect window (which the WM cannot focus, decorate, or restack)
+stays alive for the whole session. Window is a root child, black background,
+WM-invisible: mpv --wid renders directly into it, keyboard focus never leaves
+george's terminal.
+
+Commands (one per line, space-separated ints):
+  create X Y W H   create+map the window, reply "VIDWIN <hexid>"
+  move X Y W H     resize+move it (and raise)
+  raise            restack above everything
+  unmap            hide it (keep the window for reuse)
+  quit             unmap and exit
+On stdin EOF or SIGTERM the window is unmapped and the helper exits - george
+dying can never orphan the overlay.
+"""
+
+import os
+import signal
+import sys
+
+try:
+    from Xlib import X, display
+except ImportError:
+    sys.stderr.write(
+        "george-vidwin: python3-xlib not installed - run: "
+        "sudo apt install python3-xlib\n")
+    sys.exit(1)
+
+LINE_NOISE = 0  # how many stale response lines to skip in readline helper
+
+
+def main():
+    if not os.environ.get("DISPLAY"):
+        sys.stderr.write("george-vidwin: no DISPLAY\n")
+        return 1
+    try:
+        d = display.Display()
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"george-vidwin: cannot open display: {e}\n")
+        return 1
+
+    root = d.screen().root
+    win = None
+
+    def cleanup(sig=None, frame=None):
+        nonlocal win
+        if win is not None:
+            try:
+                win.unmap()
+                d.sync()
+            except Exception:  # noqa: BLE001
+                pass
+        if sig is not None:
+            sys.exit(128)
+
+    signal.signal(signal.SIGTERM, lambda s, f: (cleanup(), sys.exit(0)))
+
+    for raw in sys.stdin:
+        line = raw.strip()
+        if not line:
+            continue
+        parts = line.split()
+        cmd = parts[0]
+        try:
+            if cmd == "create" and len(parts) == 5:
+                x, y, w, h = (int(v) for v in parts[1:5])
+                if win is not None:
+                    try:
+                        win.unmap()
+                    except Exception:  # noqa: BLE001
+                        pass
+                win = root.create_window(
+                    x, y, max(2, w), max(2, h), 0,
+                    d.screen().root_depth, X.InputOutput, X.CopyFromParent,
+                    background_pixel=d.screen().black_pixel,
+                    override_redirect=1,
+                    event_mask=X.ButtonPressMask | X.ButtonReleaseMask)
+                win.set_wm_class("george-vidwin", "george-vidwin")
+                try:
+                    win.set_wm_name("george-tv")
+                except Exception:  # noqa: BLE001
+                    pass
+                win.map()
+                d.sync()
+                print("VIDWIN " + hex(int(win.id)), flush=True)
+            elif cmd == "move" and len(parts) == 5:
+                if win is not None:
+                    x, y, w, h = (int(v) for v in parts[1:5])
+                    win.configure(x=x, y=y, width=max(2, w),
+                                  height=max(2, h))
+                    win.map()
+                    d.flush()
+            elif cmd == "raise" and win is not None:
+                win.configure(stack_mode=X.Above)
+                d.flush()
+            elif cmd == "unmap" and win is not None:
+                win.unmap()
+                d.flush()
+            elif cmd == "quit":
+                cleanup()
+                return 0
+        except ValueError:
+            sys.stderr.write("george-vidwin: bad args: " + line + "\n")
+        except Exception as e:  # noqa: BLE001
+            sys.stderr.write(f"george-vidwin: {cmd} failed: {e}\n")
+
+    cleanup()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -16,17 +16,19 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
   new terminal; mapping is in `[click]` of `buttons.toml`. Keyboard-first:
   mouse input is disabled, arrows + enter drive everything.
 - **SHOWCASE + TV** lower center — left block is a wicked handy scratch space that you can save as a note or send off as an email, and, you may keep doing it.
-  (`[showcase]` lines in `buttons.toml`); right block is CH 57: george
-  docks a borderless mpv window exactly over it (I actually drag it to the right a bit), shuffling public-domain
-  *Leave It to Beaver* episodes streamed straight from archive.org
-  (`[tv]` in `buttons.toml`; regenerate lineup with `tools/mktv.py`).
-  The player runs with mpv default key bindings disabled
-  (`--no-input-default-bindings`) so it can't be paused or quit on its own —
-  it only dies with george (although it can be paused by the TV 57 channel switch in the left column). It stays
-  pinned over george's body while george is focused, then drops below any
-  other window you alt-tab to (so it never floats over your actual work),
-  and re-pins the moment you return to george. It also hides under george's
-  dialogs, follows resizes, and dies with george. Listen, I know this is weird, but, random Leave it to Beaver episodes is hilarious so it's in and it's staying.
+  (`[showcase]` lines in `buttons.toml`); right block is CH 57: george plays
+  random public-domain *Leave It to Beaver* episodes streamed from archive.org
+  directly **inside** the block (`[tv]` in `buttons.toml`; regenerate lineup
+  with `tools/mktv.py`). It is genuinely embedded, not docked: `george-vidwin`
+  (ships in this repo) keeps one X connection that owns a WM-invisible
+  window, and mpv renders into it with `--wid`. Because the window is
+  invisible to the window manager it can never grab keyboard focus, so your
+  keys stay in george the whole time — arrows, `space` to pause/resume,
+  `q` to stop (a second `q` quits george). You can click the video too:
+  left- or right-click pauses. The overlay follows george's resizes and
+  hides under its dialogs, and dies with george. Listen, I know this is
+  weird, but, random Leave it to Beaver episodes is hilarious so it's in
+  and it's staying.
 - **Random Nina chip** (`[nina]` in `buttons.toml`) — same one-audio rule as
   the radio: starts by freezing tv + radio (SIGSTOP, so they resume where
   they left off), plays a random Nina Simone track streamed from archive.org,
@@ -55,6 +57,8 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
 
 Keys: `1-9` quick-launch, `n` nag, `e` event, `f` find&replace, `g` greet,
 `r` reload config, `?` help, `esc` hide (alt-tab to raise), `q` quit.
+While the TV is playing, `space` pauses/resumes it and `q` stops it
+instead of quitting george.
 
 Term buttons hold their window open after the command exits (exit code +
 "enter closes"). Per-item `hold = false` in `buttons.toml` restores
@@ -98,9 +102,16 @@ Covers cpu/net math, wmctrl parsing, calendar grid, RSS+Atom parsing, the
 full find&replace engine against a scratch tree, event round-trips.
 
 Requires: python3-urwid (Python ≥ 3.11 for stdlib `tomllib`), alacritty,
-wmctrl, xdotool, xprop (x11-utils). TV block additionally needs `mpv`.
+wmctrl, xdotool, xprop (x11-utils). TV block additionally needs `mpv` and
+**`python3-xlib`** — the embedded-video helper `george-vidwin` (ships in
+this repo) talks X11 directly, so users without it need to install it first:
 
-Layout note: the CH 57 block docks *over* what is currently open in the
+    sudo apt install python3-xlib
+
+(The helper resolves itself from `~/bin/george-vidwin`, this repo, or your
+`$PATH`, in that order — george tells you if it can't find it.)
+
+Layout note: the CH 57 video is an embedded overlay hugging the
 lower-right of george — the demo config traces a block so its exact size
-depends on terminal rows; tune `[tv] x/y/w/h` in config if the dock doesn't
-line up with your window size.
+depends on terminal rows; tune `[tv] x/y/w/h` in config if the overlay
+doesn't line up with your window size.
