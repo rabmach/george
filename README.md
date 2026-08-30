@@ -27,6 +27,12 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
   other window you alt-tab to (so it never floats over your actual work),
   and re-pins the moment you return to george. It also hides under george's
   dialogs, follows resizes, and dies with george. Listen, I know this is weird, but, random Leave it to Beaver episodes is hilarious so it's in and it's staying.
+- **Random Nina chip** (`[nina]` in `buttons.toml`) — same one-audio rule as
+  the radio: starts by freezing tv + radio (SIGSTOP, so they resume where
+  they left off), plays a random Nina Simone track streamed from archive.org,
+  and stopping it unfreezes whoever it paused. The picker is a script that
+  answers `--url-only` with `TITLE<TAB>URL`; the repo ships `cmd = "nina.sh"`
+  as an example.
 - **Top bar** — clock plus a chip per running/minimized window (via wmctrl).
   Display-only since going keyboard-first; alt-tab / your WM's keys manage
   windows as always.

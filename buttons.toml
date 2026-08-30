@@ -87,3 +87,11 @@ playlist = "tv/beaver.m3u"
 [radio]
 url = "https://wicn-ice.streamguys1.com/live-mp3"
 label = "WICN"
+
+# Random Nina chip (bottom of the LAUNCH column): plays a random Nina Simone
+# track from archive.org. cmd = a script that prints "TITLE<TAB>URL" for
+# --url-only (any picker works). One-audio: starting nina freezes tv + radio,
+# stopping it resumes both.
+[nina]
+cmd = "nina.sh"
+label = "NINA"

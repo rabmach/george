@@ -703,7 +703,7 @@ class App:
         self.q = queue.Queue()
         self.loglines = deque(maxlen=300)
         self.cfg = {"sections": [], "clicks": {}, "links": [],
-                    "tv": {}, "showcase": {}, "radio": {}}
+                    "tv": {}, "showcase": {}, "radio": {}, "nina": {}}
         self.load_cfg(first=True)
         self._cpu_prev = None
         self._net_prev = None
@@ -725,6 +725,8 @@ class App:
         self._tv_stack_last = None
         self._tv_paused = False
         self._radio_paused = False
+        self._nina_proc = None
+        self._nina_paused = False
         self.modal = None
         self.mode = "list"
         self.fr_hits = None
@@ -772,6 +774,7 @@ class App:
         self.cfg["tv"] = raw.get("tv", {})
         self.cfg["showcase"] = raw.get("showcase", {})
         self.cfg["radio"] = raw.get("radio", {})
+        self.cfg["nina"] = raw.get("nina", {})
         if not first:
             self.rebuild_dynamic()
 
@@ -835,6 +838,12 @@ class App:
             lbl = rcfg.get("label", "radio")
             self.radio_btn = Click(f" ▶ RADIO {lbl} ", self.do_radio)
             items.append(self.radio_btn)
+        ncfg = self.cfg.get("nina", {})
+        if ncfg.get("cmd") or ncfg.get("url"):
+            items.append(urwid.Divider(" "))
+            nlbl = ncfg.get("label", "NINA")
+            self.nina_btn = Click(f" ▶ {nlbl.upper()} ", self.do_nina)
+            items.append(self.nina_btn)
         tvcfg = self.cfg.get("tv", {})
         if tvcfg.get("enable"):
             items.append(urwid.Divider(" "))
@@ -1008,6 +1017,10 @@ class App:
             if self._freeze(self._radio_proc):
                 self._radio_paused = True
                 self.log("radio paused for tv", "info")
+        if self._nina_proc is not None and self._nina_proc.poll() is None:
+            if self._freeze(self._nina_proc):
+                self._nina_paused = True
+                self.log("nina paused for tv", "info")
         args = ["mpv", "--no-border", f"--title={TV_TITLE}",
                 "--loop-playlist", "--shuffle", "--osc=no",
                 "--force-window=yes", "--fullscreen=no",
@@ -1105,6 +1118,11 @@ class App:
             if rp is not None and rp.poll() is None:
                 self._thaw(rp)
                 self.log("radio resumed", "info")
+        if self._nina_paused:
+            np_, self._nina_paused = self._nina_proc, False
+            if np_ is not None and np_.poll() is None:
+                self._thaw(np_)
+                self.log("nina resumed", "info")
 
     def radio_start(self):
         rcfg = self.cfg.get("radio", {})
@@ -1116,6 +1134,10 @@ class App:
             if self._freeze(self._tv_proc):
                 self._tv_paused = True
                 self.log("tv paused for radio", "info")
+        if self._nina_proc and self._nina_proc.poll() is None:
+            if self._freeze(self._nina_proc):
+                self._nina_paused = True
+                self.log("nina paused for radio", "info")
         try:
             tvlog = Path("~/.local/state").expanduser() / "george-tv.log"
             lf = tvlog.open("a")
@@ -1154,6 +1176,106 @@ class App:
                 self._thaw(tp)
                 if not silent:
                     self.log("tv resumed", "accent")
+        if self._nina_paused:
+            np_, self._nina_paused = self._nina_proc, False
+            if np_ is not None and np_.poll() is None:
+                self._thaw(np_)
+                if not silent:
+                    self.log("nina resumed", "accent")
+
+    def nina_start(self):
+        ncfg = self.cfg.get("nina", {})
+        url = ncfg.get("url")
+        cmd = (ncfg.get("cmd") or "nina.sh").strip()
+        if not url:
+            nina_cmd = None
+            for cand in (cmd, str(Path.home() / "bin" / cmd),
+                         str(Path.home() / "nina" / cmd)):
+                if shutil.which(cand) or Path(cand).expanduser().is_file():
+                    nina_cmd = cand
+                    break
+            if not nina_cmd:
+                self.log("nina: no cmd or url configured", "warn")
+                return
+            try:
+                out = subprocess.run([nina_cmd, "--url-only"],
+                                     capture_output=True, text=True,
+                                     timeout=15,
+                                     stdin=subprocess.DEVNULL)
+            except (OSError, subprocess.SubprocessError) as e:
+                self.log(f"nina pick failed: {e}", "warn")
+                return
+            if out.returncode != 0:
+                self.log("nina: picker errored: " +
+                         (out.stderr.strip().splitlines() or
+                          ["?"])[-1][:80], "warn")
+                return
+            parts = out.stdout.strip().split("\t", 1)
+            if len(parts) != 2 or not parts[1]:
+                self.log("nina: picker returned no url", "warn")
+                return
+            title, url = parts[0], parts[1]
+        else:
+            title = ncfg.get("label", "NINA")
+        if self._tv_proc and self._tv_proc.poll() is None:
+            if self._freeze(self._tv_proc):
+                self._tv_paused = True
+                self.log("tv paused for nina", "info")
+        if self._radio_proc and self._radio_proc.poll() is None:
+            if self._freeze(self._radio_proc):
+                self._radio_paused = True
+                self.log("radio paused for nina", "info")
+        try:
+            tvlog = Path("~/.local/state").expanduser() / "george-tv.log"
+            lf = tvlog.open("a")
+            self._nina_proc = subprocess.Popen(
+                ["mpv", "--no-video", "--force-window=no",
+                 "--audio-display=no", "--really-quiet",
+                 "--title=Random Nina", url],
+                stdin=subprocess.DEVNULL, stdout=lf, stderr=lf,
+                start_new_session=True)
+            nlbl = ncfg.get("label", "NINA")
+            self.log(f"nina on: {title}", "accent")
+            if getattr(self, "nina_btn", None):
+                self.nina_btn._t.set_text(f" ■ {nlbl.upper()} ON AIR ")
+        except OSError as e:
+            self.log(f"nina failed: {e}", "crit")
+
+    def nina_stop(self, why="nina off", silent=False):
+        proc, self._nina_proc = self._nina_proc, None
+        was_paused = self._nina_paused
+        self._nina_paused = False
+        if proc is not None and proc.poll() is None:
+            if was_paused:
+                self._thaw(proc)
+            try:
+                proc.terminate()
+            except OSError:
+                pass
+        if not silent:
+            self.log(why, "ok")
+            ncfg = self.cfg.get("nina", {})
+            nlbl = ncfg.get("label", "NINA")
+            if getattr(self, "nina_btn", None):
+                self.nina_btn._t.set_text(f" ▶ {nlbl.upper()} ")
+        if self._tv_paused:
+            tp, self._tv_paused = self._tv_proc, False
+            if tp is not None and tp.poll() is None:
+                self._thaw(tp)
+                if not silent:
+                    self.log("tv resumed", "accent")
+        if self._radio_paused:
+            rp, self._radio_paused = self._radio_proc, False
+            if rp is not None and rp.poll() is None:
+                self._thaw(rp)
+                if not silent:
+                    self.log("radio resumed", "accent")
+
+    def do_nina(self):
+        if self._nina_proc and self._nina_proc.poll() is None:
+            self.nina_stop()
+        else:
+            self.nina_start()
 
     def do_radio(self):
         if self._radio_proc and self._radio_proc.poll() is None:
@@ -1963,6 +2085,7 @@ class App:
         finally:
             self.tv_stop()
             self.radio_stop(silent=True)
+            self.nina_stop(silent=True)
 
 
 def selftest():
