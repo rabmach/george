@@ -91,6 +91,19 @@ enable = true
 title = "CH 59"
 playlist = "tv/funny.m3u"
 
+# The video slot is also a windowless terminal (undecorated alacritty pinned
+# to the same block). TERM / CH 57 / CH 59 share ONE box: a channel switch
+# buries the terminal, stopping a channel brings it back. [term] enable adds
+# the TERM chip; [boot] autostart picks what's in the slot at login:
+# "term" = focused terminal (default), "tv"/"funny" = that channel,
+# "none" = idle box.
+[term]
+enable = true
+title = "TERM"
+
+[boot]
+autostart = "term"
+
 # Radio chip (bottom of the LAUNCH column; `m` key toggles):
 [radio]
 url = "https://wicn-ice.streamguys1.com/live-mp3"

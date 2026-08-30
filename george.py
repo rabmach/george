@@ -726,6 +726,8 @@ class App:
         self._tv_stack_last = None
         self._tv_paused = False
         self._tv_channel = None
+        self._term_proc = None
+        self._term_last_rect = None
         self._vidwin_proc = None
         self._radio_paused = False
         self._nina_proc = None
@@ -776,6 +778,8 @@ class App:
         self.cfg["links"] = raw.get("link", [])
         self.cfg["tv"] = raw.get("tv", {})
         self.cfg["funny"] = raw.get("funny", {})
+        self.cfg["term"] = raw.get("term", {})
+        self.cfg["boot"] = raw.get("boot", {})
         self.cfg["showcase"] = raw.get("showcase", {})
         self.cfg["radio"] = raw.get("radio", {})
         self.cfg["nina"] = raw.get("nina", {})
@@ -836,6 +840,12 @@ class App:
                 items.append(btn)
                 if len(self.quick) < 9:
                     self.quick.append((spec, it.get("label")))
+        tcfg = self.cfg.get("term", {})
+        if tcfg.get("enable"):
+            items.append(urwid.Divider(" "))
+            tl = tcfg.get("title", "TERM") or "TERM"
+            self.term_btn = Click(f" ▶ {tl.split(' - ')[0]} ", self.do_term)
+            items.append(self.term_btn)
         rcfg = self.cfg.get("radio", {})
         if rcfg.get("url"):
             items.append(urwid.Divider(" "))
@@ -961,9 +971,15 @@ class App:
         self.log("config reloaded", "ok")
 
     def _tv_sync_title(self):
-        name = self._tv_channel or "tv"
+        if self._tv_channel:
+            name = self._tv_channel
+        elif self._term_alive():
+            name = "term"
+        else:
+            name = "tv"
         cfg = self.cfg.get(name, {})
-        fallback = "CHANNEL 57" if name == "tv" else "CHANNEL 59"
+        fallback = {"tv": "CHANNEL 57", "funny": "CHANNEL 59",
+                    "term": "TERMINAL"}.get(name, "TV")
         title = cfg.get("title") or fallback
         self._tv_title = title
         if hasattr(self, "tv_box"):
@@ -1040,6 +1056,8 @@ class App:
             # channel switch: kill the current player, keep radio/nina
             # frozen for the one about to start
             self._chan_stop_player()
+        if self._term_alive():
+            self.term_stop()
         rect = self._tv_target_rect()
         if not rect:
             self.log("tv: couldn't locate the channel block (is george mapped?)",
@@ -1288,7 +1306,7 @@ class App:
             rect[3] = int(tv["h"])
         return tuple(rect)
 
-    def tv_stop(self):
+    def tv_stop(self, return_to_term=True):
         self._chan_stop_player()
         if self._radio_paused:
             rp, self._radio_paused = self._radio_proc, False
@@ -1300,6 +1318,129 @@ class App:
             if np_ is not None and np_.poll() is None:
                 self._thaw(np_)
                 self.log("nina resumed", "info")
+        if return_to_term and self._term_enabled():
+            self.term_start(focus=False)
+
+    def _term_enabled(self):
+        return bool(self.cfg.get("term", {}).get("enable") and
+                    os.environ.get("DISPLAY"))
+
+    def _term_alive(self):
+        p = self._term_proc
+        return p is not None and p.poll() is None
+
+    def _term_win_id(self):
+        try:
+            out = subprocess.run(
+                ["xdotool", "search", "--class", "george-box"],
+                capture_output=True, text=True, timeout=3).stdout.split()
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return out[-1] if out else None
+
+    def _term_pin(self, rect=None, loop=None, data=None):
+        if rect is None:
+            rect = self._tv_target_rect()
+        if not rect:
+            return
+        wid = self._term_win_id()
+        if not wid:
+            return
+        x, y, w, h = rect
+        try:
+            subprocess.Popen(["wmctrl", "-i", "-r", wid, "-e",
+                              f"0,{x},{y},{w},{h}"],
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+            subprocess.Popen(["wmctrl", "-i", "-r", wid,
+                              "-b", "add,above,skip_taskbar,skip_pager"],
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+        except OSError:
+            pass
+
+    def _term_focus(self):
+        wid = self._term_win_id()
+        if wid:
+            try:
+                subprocess.Popen(["wmctrl", "-i", "-a", wid],
+                                 stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+            except OSError:
+                pass
+
+    def term_start(self, focus=False):
+        if not self._term_enabled():
+            return False
+        if self._term_alive():
+            if focus:
+                self._term_focus()
+            return True
+        if not shutil.which("alacritty"):
+            self.log("term: alacritty not installed", "warn")
+            return False
+        rect = self._tv_target_rect()
+        if not rect:
+            self.log("term: slot rect not found yet", "warn")
+            return False
+        x, y, w, h = rect
+        cols = max(24, int(w / 8))
+        rows = max(8, int(h / 16))
+        try:
+            self._term_proc = subprocess.Popen(
+                ["alacritty", "--class", "george-box", "--title", "george-box",
+                 "-o", f'window.dimensions.columns={cols}',
+                 "-o", f"window.dimensions.lines={rows}",
+                 "-o", f"window.position.x={x}",
+                 "-o", f"window.position.y={y}",
+                 "-o", 'window.decorations="None"',
+                 "-e", os.environ.get("SHELL", "/bin/bash")],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, start_new_session=True)
+        except OSError as e:
+            self.log(f"term: spawn failed: {e}", "crit")
+            self._term_proc = None
+            return False
+        self._term_last_rect = rect
+        self._tv_sync_title()
+        self.log("term on", "accent")
+        self.loop.set_alarm_in(0.8, self._term_pin, rect)
+        if focus:
+            self.loop.set_alarm_in(1.5, self._term_focus)
+        return True
+
+    def term_stop(self):
+        proc, self._term_proc = self._term_proc, None
+        self._term_last_rect = None
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=3)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        self._tv_sync_title()
+
+    def do_term(self):
+        if not self._term_enabled():
+            self.log("term disabled in buttons.toml", "warn")
+            return
+        if self._tv_proc and self._tv_proc.poll() is None:
+            self.tv_stop()
+            self._term_focus()
+            return
+        if self._term_alive():
+            self._term_focus()
+        else:
+            self.term_start(focus=True)
+
+    def _slot_boot(self, loop=None, data=None):
+        autostart = self.cfg.get("boot", {}).get("autostart", "term")
+        if autostart == "tv":
+            self.tv_start()
+        elif autostart == "funny":
+            self.funny_start()
+        elif autostart == "term":
+            self.term_start(focus=True)
 
     def radio_start(self):
         rcfg = self.cfg.get("radio", {})
@@ -1343,10 +1484,10 @@ class App:
                 pass
         if not silent:
             self.log(why, "ok")
-            rcfg = self.cfg.get("radio", {})
-            lbl = rcfg.get("label", "radio")
-            if getattr(self, "radio_btn", None):
-                self.radio_btn._t.set_text(f" ▶ RADIO {lbl} ")
+        rcfg = self.cfg.get("radio", {})
+        lbl = rcfg.get("label", "radio")
+        if getattr(self, "radio_btn", None):
+            self.radio_btn._t.set_text(f" ▶ RADIO {lbl} ")
         if self._tv_paused:
             tp, self._tv_paused = self._tv_proc, False
             if tp is not None and tp.poll() is None:
@@ -1679,6 +1820,12 @@ class App:
             self.log(f"tv player exited (rc={rc}); see george-tv.log", "warn")
         if self._tv_proc is None:
             self._vidwin_clear()
+        if self._term_alive():
+            rect = self._tv_target_rect()
+            if rect and rect != self._term_last_rect:
+                self._term_last_rect = rect
+                self._term_pin(rect)
+        if self._tv_proc is None:
             return
         rect = self._tv_target_rect()
         if not rect:
@@ -2276,14 +2423,15 @@ class App:
         self.tick_clock()
         self.tick_events()
         self.place_self()
-        self.loop.set_alarm_in(2, self.tv_start)
+        self.loop.set_alarm_in(2, self._slot_boot)
         try:
             self.loop.run()
         except KeyboardInterrupt:
             pass
         finally:
-            self.tv_stop()
+            self.tv_stop(return_to_term=False)
             self._vidwin_teardown()
+            self.term_stop()
             self.radio_stop(silent=True)
             self.nina_stop(silent=True)
 

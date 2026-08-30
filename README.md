@@ -29,9 +29,13 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
   hides under its dialogs, and dies with george. And there's a **CH 59** — a
   silent-comedy/cartoons/oddball-docs channel (`[funny]` in `buttons.toml`,
   regenerate with `tools/update-funny.py`) that shares the same one video
-  slot: starting one stops the other, like flipping channels. Whichever
-  channel is `enable = true` boots with george; mid-session the LAUNCH chips
-  switch. Listen, I know this is
+  slot: starting one stops the other, like flipping channels. The same box
+  is also a **windowless terminal** (`[term]` in `buttons.toml`): an
+  undecorated alacritty pinned exactly to the block, no frame, no alt-tab
+  entry. A channel switch buries the terminal; stopping a channel (`q` /
+  the chip again) brings it back quietly. What's in the slot at login is
+  `[boot] autostart` — `"term"` (default, focused workspace), `"tv"`,
+  `"funny"`, or `"none"`. Listen, I know this is
   weird, but, random Leave it to Beaver episodes is hilarious so it's in
   and it's staying.
 - **Random Nina chip** (`[nina]` in `buttons.toml`) — same one-audio rule as
