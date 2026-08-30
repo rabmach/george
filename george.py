@@ -775,6 +775,7 @@ class App:
         self.cfg["clicks"] = raw.get("click", {})
         self.cfg["links"] = raw.get("link", [])
         self.cfg["tv"] = raw.get("tv", {})
+        self.cfg["funny"] = raw.get("funny", {})
         self.cfg["showcase"] = raw.get("showcase", {})
         self.cfg["radio"] = raw.get("radio", {})
         self.cfg["nina"] = raw.get("nina", {})
