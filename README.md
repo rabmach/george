@@ -16,7 +16,7 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
   new terminal; mapping is in `[click]` of `buttons.toml`. Keyboard-first:
   mouse input is disabled, arrows + enter drive everything.
 - **SHOWCASE + TV** lower center — left block is a wicked handy scratch space that you can save as a note or send off as an email, and, you may keep doing it.
-  (`[showcase]` lines in `buttons.toml`); right block is CH 57: george plays
+  (`[showcase]` lines in `buttons.toml`); right block is the video channel: george plays
   random public-domain *Leave It to Beaver* episodes streamed from archive.org
   directly **inside** the block (`[tv]` in `buttons.toml`; regenerate lineup
   with `tools/mktv.py`). It is genuinely embedded, not docked: `george-vidwin`
@@ -26,7 +26,12 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
   keys stay in george the whole time — arrows, `space` to pause/resume,
   `q` to stop (a second `q` quits george). You can click the video too:
   left- or right-click pauses. The overlay follows george's resizes and
-  hides under its dialogs, and dies with george. Listen, I know this is
+  hides under its dialogs, and dies with george. And there's a **CH 59** — a
+  silent-comedy/cartoons/oddball-docs channel (`[funny]` in `buttons.toml`,
+  regenerate with `tools/update-funny.py`) that shares the same one video
+  slot: starting one stops the other, like flipping channels. Whichever
+  channel is `enable = true` boots with george; mid-session the LAUNCH chips
+  switch. Listen, I know this is
   weird, but, random Leave it to Beaver episodes is hilarious so it's in
   and it's staying.
 - **Random Nina chip** (`[nina]` in `buttons.toml`) — same one-audio rule as

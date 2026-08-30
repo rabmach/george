@@ -83,6 +83,14 @@ playlist = "tv/beaver.m3u"
 # w = 0
 # h = 0
 
+# CH 59 -- silent comedy / cartoons / oddball docs, same embed window.
+# Shares the ONE video slot: starting 59 stops 57 (and vice versa).
+#   Regenerate with:  python3 tools/update-funny.py
+[funny]
+enable = true
+title = "CH 59"
+playlist = "tv/funny.m3u"
+
 # Radio chip (bottom of the LAUNCH column; `m` key toggles):
 [radio]
 url = "https://wicn-ice.streamguys1.com/live-mp3"

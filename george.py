@@ -725,6 +725,7 @@ class App:
         self._tv_manual = False
         self._tv_stack_last = None
         self._tv_paused = False
+        self._tv_channel = None
         self._vidwin_proc = None
         self._radio_paused = False
         self._nina_proc = None
@@ -852,6 +853,12 @@ class App:
             tlbl = (tvcfg.get("title", "CH 57") or "CH 57").split(" - ")[0]
             self.tv_btn = Click(f" ▶ {tlbl} ", self.do_tv)
             items.append(self.tv_btn)
+        fcfg = self.cfg.get("funny", {})
+        if fcfg.get("enable"):
+            items.append(urwid.Divider(" "))
+            flbl = (fcfg.get("title", "CH 59") or "CH 59").split(" - ")[0]
+            self.funny_btn = Click(f" ▶ {flbl} ", self.do_funny)
+            items.append(self.funny_btn)
         del self.left_walker[:]
         self.left_walker.extend(items)
 
@@ -988,13 +995,23 @@ class App:
             pass
 
     def tv_start(self, loop=None, data=None):
-        tvcfg = self.cfg.get("tv", {})
-        if not (tvcfg.get("enable") and os.environ.get("DISPLAY")):
+        self._chan_start("tv")
+
+    def funny_start(self, loop=None, data=None):
+        self._chan_start("funny")
+
+    def _chan_start(self, name):
+        cfg = self.cfg.get(name, {})
+        if name == "tv":
+            disp = cfg.get("title") or "CHANNEL 57"
+        else:
+            disp = cfg.get("title") or "CHANNEL 59"
+        if not (cfg.get("enable") and os.environ.get("DISPLAY")):
             return
         if not shutil.which("mpv"):
             self.log("tv: mpv not installed", "warn")
             return
-        pl = Path(tvcfg.get("playlist", "") or "").expanduser()
+        pl = Path(cfg.get("playlist", "") or "").expanduser()
         if not pl.is_absolute():
             pl = (HERE / pl).resolve()
         else:
@@ -1006,12 +1023,16 @@ class App:
             if self._tv_paused:
                 self._thaw(self._tv_proc)
                 self._tv_paused = False
-                self.log(f"tv resumed: {tvcfg.get('title', 'CHANNEL 57')}",
-                         "accent")
-            return
+                self.log(f"tv resumed: {disp}", "accent")
+                return
+            if self._tv_channel == name:
+                return
+            # channel switch: kill the current player, keep radio/nina
+            # frozen for the one about to start
+            self._chan_stop_player()
         rect = self._tv_target_rect()
         if not rect:
-            self.log("tv: couldn't locate CH57 block (is george mapped?)",
+            self.log("tv: couldn't locate the channel block (is george mapped?)",
                      "warn")
             self._retry_tv()
             return
@@ -1056,9 +1077,30 @@ class App:
                 args, stdin=subprocess.DEVNULL,
                 stdout=self._tv_logf, stderr=self._tv_logf,
                 start_new_session=True)
-            self.log(f"tv on: {tvcfg.get('title', 'CHANNEL 57')}", "accent")
+            self._tv_channel = name
+            self.log(f"tv on: {disp}", "accent")
         except OSError as e:
             self.log(f"tv failed: {e}", "crit")
+
+    def _chan_stop_player(self):
+        proc, self._tv_proc = self._tv_proc, None
+        self._tv_channel = None
+        was_paused = self._tv_paused
+        self._tv_paused = False
+        if proc is not None and proc.poll() is None:
+            if was_paused:
+                self._thaw(proc)
+            try:
+                proc.terminate()
+                proc.wait(timeout=5)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        self._vidwin_clear()
+        try:
+            Path("~/.local/state").expanduser().joinpath(
+                "george-tv.sock").unlink(missing_ok=True)
+        except OSError:
+            pass
 
     def _retake_focus(self, loop=None, tries=14):
         # retired: the CH57 video now renders into a WM-invisible X window
@@ -1235,23 +1277,7 @@ class App:
         return tuple(rect)
 
     def tv_stop(self):
-        proc, self._tv_proc = self._tv_proc, None
-        was_paused = self._tv_paused
-        self._tv_paused = False
-        if proc is not None and proc.poll() is None:
-            if was_paused:
-                self._thaw(proc)
-            try:
-                proc.terminate()
-                proc.wait(timeout=5)
-            except (OSError, subprocess.SubprocessError):
-                pass
-        self._vidwin_clear()
-        try:
-            Path("~/.local/state").expanduser().joinpath(
-                "george-tv.sock").unlink(missing_ok=True)
-        except OSError:
-            pass
+        self._chan_stop_player()
         if self._radio_paused:
             rp, self._radio_paused = self._radio_proc, False
             if rp is not None and rp.poll() is None:
@@ -1435,10 +1461,27 @@ class App:
             self.log("tv disabled in buttons.toml", "warn")
             return
         if self._tv_proc and self._tv_proc.poll() is None:
-            self.tv_stop()
-            self.log("tv off", "ok")
+            if self._tv_channel == "tv":
+                self.tv_stop()
+                self.log("tv off", "ok")
+            else:
+                self.tv_start()  # switch CH 59 -> CH 57
         else:
             self.tv_start()
+
+    def do_funny(self):
+        fcfg = self.cfg.get("funny", {})
+        if not (fcfg.get("enable") and os.environ.get("DISPLAY")):
+            self.log("funny disabled in buttons.toml", "warn")
+            return
+        if self._tv_proc and self._tv_proc.poll() is None:
+            if self._tv_channel == "funny":
+                self.tv_stop()
+                self.log("tv off", "ok")
+            else:
+                self.funny_start()  # switch CH 57 -> CH 59
+        else:
+            self.funny_start()
 
     def _retry_tv(self):
         tries = getattr(self, "_tv_retries", 0)
@@ -1619,6 +1662,7 @@ class App:
         if proc is not None and proc.poll() is not None:
             rc = proc.returncode
             self._tv_proc = None
+            self._tv_channel = None
             self._tv_paused = False
             self.log(f"tv player exited (rc={rc}); see george-tv.log", "warn")
         if self._tv_proc is None:
