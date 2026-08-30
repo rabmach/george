@@ -922,11 +922,11 @@ class App:
         self.tv_zone_text = urwid.Text("")
         self._tv_title = self.cfg.get("tv", {}).get(
             "title", "CHANNEL 57")
-        tvbox = urwid.LineBox(urwid.Filler(self.tv_zone_text, "middle"),
-                              title=f" {self._tv_title} ")
+        self.tv_box = urwid.LineBox(urwid.Filler(self.tv_zone_text, "middle"),
+                                    title=f" {self._tv_title} ")
         bottom = urwid.Columns([
             ("weight", 1, scratchbox),
-            ("fixed", max(40, int((self._last_width or 190) * 0.38)), tvbox),
+            ("fixed", max(40, int((self._last_width or 190) * 0.38)), self.tv_box),
         ], dividechars=1)
         center = urwid.Pile([
             ("weight", 2, merged_box),
@@ -959,6 +959,15 @@ class App:
         self.render_feeds()
         self.render_tv_zone()
         self.log("config reloaded", "ok")
+
+    def _tv_sync_title(self):
+        name = self._tv_channel or "tv"
+        cfg = self.cfg.get(name, {})
+        fallback = "CHANNEL 57" if name == "tv" else "CHANNEL 59"
+        title = cfg.get("title") or fallback
+        self._tv_title = title
+        if hasattr(self, "tv_box"):
+            self.tv_box.set_title(f" {title} ")
 
     def render_tv_zone(self):
         tvcfg = self.cfg.get("tv", {})
@@ -1079,6 +1088,7 @@ class App:
                 stdout=self._tv_logf, stderr=self._tv_logf,
                 start_new_session=True)
             self._tv_channel = name
+            self._tv_sync_title()
             self.log(f"tv on: {disp}", "accent")
         except OSError as e:
             self.log(f"tv failed: {e}", "crit")
@@ -1086,6 +1096,7 @@ class App:
     def _chan_stop_player(self):
         proc, self._tv_proc = self._tv_proc, None
         self._tv_channel = None
+        self._tv_sync_title()
         was_paused = self._tv_paused
         self._tv_paused = False
         if proc is not None and proc.poll() is None:
