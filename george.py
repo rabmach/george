@@ -1326,7 +1326,8 @@ class App:
         ncfg = self.cfg.get("nina", {})
         url = ncfg.get("url")
         cmd = (ncfg.get("cmd") or "nina.sh").strip()
-        if not url:
+        dynamic = not url
+        if dynamic:
             nina_cmd = None
             for cand in (cmd, str(Path.home() / "bin" / cmd),
                          str(Path.home() / "nina" / cmd)):
@@ -1337,7 +1338,7 @@ class App:
                 self.log("nina: no cmd or url configured", "warn")
                 return
             try:
-                out = subprocess.run([nina_cmd, "--url-only"],
+                out = subprocess.run([nina_cmd, "--playlist"],
                                      capture_output=True, text=True,
                                      timeout=15,
                                      stdin=subprocess.DEVNULL)
@@ -1351,7 +1352,7 @@ class App:
                 return
             parts = out.stdout.strip().split("\t", 1)
             if len(parts) != 2 or not parts[1]:
-                self.log("nina: picker returned no url", "warn")
+                self.log("nina: picker returned no playlist", "warn")
                 return
             title, url = parts[0], parts[1]
         else:
@@ -1367,10 +1368,16 @@ class App:
         try:
             tvlog = Path("~/.local/state").expanduser() / "george-tv.log"
             lf = tvlog.open("a")
+            args = ["mpv", "--no-video", "--force-window=no",
+                    "--audio-display=no", "--really-quiet",
+                    "--title=Random Nina"]
+            if dynamic:
+                # continuous: nina.sh handed us a fresh shuffled playlist
+                args += ["--loop-playlist", "--playlist=" + url]
+            else:
+                args += [url]
             self._nina_proc = subprocess.Popen(
-                ["mpv", "--no-video", "--force-window=no",
-                 "--audio-display=no", "--really-quiet",
-                 "--title=Random Nina", url],
+                args,
                 stdin=subprocess.DEVNULL, stdout=lf, stderr=lf,
                 start_new_session=True)
             nlbl = ncfg.get("label", "NINA")

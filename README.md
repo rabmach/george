@@ -31,10 +31,12 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
   and it's staying.
 - **Random Nina chip** (`[nina]` in `buttons.toml`) — same one-audio rule as
   the radio: starts by freezing tv + radio (SIGSTOP, so they resume where
-  they left off), plays a random Nina Simone track streamed from archive.org,
-  and stopping it unfreezes whoever it paused. The picker is a script that
-  answers `--url-only` with `TITLE<TAB>URL`; the repo ships `cmd = "nina.sh"`
-  as an example.
+  they left off), then streams the whole shuffled Nina Simone archive pool
+  (208 songs + 2 whole albums, looping) until the chip is hit again — not a
+  one-track stop. The picker answers `--playlist` with a fresh shuffled
+  playlist; the repo ships `cmd = "nina.sh"` as an example. Standalone
+  `nina.sh` (outside george) also toggles: run it again to stop, no need to
+  find the window for `q`.
 - **Top bar** — clock plus a chip per running/minimized window (via wmctrl).
   Display-only since going keyboard-first; alt-tab / your WM's keys manage
   windows as always.
