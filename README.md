@@ -42,6 +42,10 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
   pane). The terminal pane runs your shell in a loop, so Ctrl+D or `exit`
   just gives a fresh prompt — it can never take george down. Enter the
   terminal with Ctrl+t or a click; come back to the dashboard the same way.
+  Run `bin/george` from a bare console tty (no X/wayland) and it falls back
+  to running the dashboard directly in the terminal — george is a pure urwid
+  TUI, so it works on a plain console too (no tmux pane there, just the
+  dashboard).
 - **Random Nina chip** (`[nina]` in `buttons.toml`) — one-audio rule: starts
   by freezing the radio (SIGSTOP, so it resumes where it left off), then
   streams the whole shuffled Nina Simone archive pool (208 songs + 2 whole
@@ -116,8 +120,10 @@ config is touched. Works under any EWMH-compliant WM.
 Covers cpu/net math, wmctrl parsing, calendar grid, RSS+Atom parsing, the
 full find&replace engine against a scratch tree, event round-trips.
 
-Requires: python3-urwid (Python ≥ 3.11 for stdlib `tomllib`), alacritty,
+Requires: python3-urwid (Python ≥ 3.11 for stdlib `tomllib`); on X: alacritty,
 wmctrl, xdotool, xprop (x11-utils), and `tmux` (for the built-in terminal
-panes — Ctrl+t flips focus; already present on most Debian installs). The
+panes — Ctrl+t flips focus; already present on most Debian installs). On a
+bare console tty none of those are needed — `bin/george` just runs the
+dashboard directly. The
 CH 57/59 buttons additionally need `mpv`. Nothing else — the embedded-video
 helper is long gone; channels are plain launcher buttons.

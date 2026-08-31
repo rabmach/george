@@ -3,5 +3,13 @@
 # to this script's own location so it survives cloning to any path.
 # (One-line usage:  ~/bin/george  or  /path/to/george/bin/george)
 here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+# Bare console tty (no X/wayland): alacritty can't start, so run the
+# dashboard directly in the current terminal - george is a pure urwid TUI
+# and works on a plain console (no tmux pane, just the dashboard).
+if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+    exec python3 "$here/../george.py" "$@"
+fi
+
 exec alacritty --title george --class georges \
     -e python3 "$here/../george.py" "$@"
