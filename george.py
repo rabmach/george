@@ -929,8 +929,13 @@ class App:
         if not cmd:
             return
         term = spec.get("term", False)
-        if (term or spec.get("gui")) and not os.environ.get("DISPLAY"):
-            self.log(f"no X display: cannot launch {cmd}", "warn")
+        if spec.get("gui") and not os.environ.get("DISPLAY"):
+            self.log(f"gui button needs X: {cmd}", "warn")
+            return
+        if term and not os.environ.get("DISPLAY"):
+            # tty mode: george already owns the terminal - drop the UI,
+            # run the script in the foreground right here, resume after.
+            self._tty_run(spec, label)
             return
         argv = shlex.split(cmd)
         if term:
@@ -946,6 +951,41 @@ class App:
             self.log(f"launched: {label or cmd}", "ok")
         except OSError as e:
             self.log(f"launch failed: {cmd}: {e}", "crit")
+
+    def _tty_run(self, spec, label=None):
+        """Console-tty terminal launch: suspend the urwid screen, run the
+        script in the foreground on this tty (with the same hold wrapper as
+        X mode), then bring george back. Ctrl+c kills the script, not
+        george (SIG_DFL for the child, SIG_IGN restored after)."""
+        cmd = spec.get("cmd", "")
+        script = cmd
+        if spec.get("hold", True):
+            script = (f"{cmd}\n"
+                      "rc=$?\n"
+                      "echo\n"
+                      'echo "--- george: exit $rc | enter closes ---"\n'
+                      "read -r _\n")
+        self.log(f"launched in tty: {label or cmd}", "ok")
+        self.loop.screen.stop()
+        rc = None
+        try:
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
+            rc = subprocess.run(["bash", "-c", script]).returncode
+        except OSError as e:
+            print(f"george: launch failed: {cmd}: {e}")
+            try:
+                input("enter to continue...")
+            except EOFError:
+                pass
+        finally:
+            try:
+                signal.signal(signal.SIGINT, signal.SIG_IGN)
+            except (ValueError, OSError):
+                pass
+            self.loop.screen.start()
+            self.loop.draw_screen()
+        if rc not in (0, None):
+            self.log(f"exit {rc}: {label or cmd}", "warn")
 
     def build_left(self):
         items = []
