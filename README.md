@@ -39,17 +39,23 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
 - **Built-in terminal** — one alacritty window is split by tmux into two
   panes: george on top, a real shell below (`bin/george` does this; Ctrl+t,
   wired as a tmux no-prefix binding, flips focus between them, or click a
-  pane). The terminal pane runs your shell in a loop, so Ctrl+D or `exit`
-  just gives a fresh prompt — it can never take george down. Enter the
-  terminal with Ctrl+t or a click; come back to the dashboard the same way.
-  Run `bin/george` from a bare console tty (no X/wayland) and it falls back
-  to running the dashboard directly in the terminal — george is a pure urwid
-  TUI, so it works on a plain console too (no tmux pane there, just the
-  dashboard). `term:` buttons work on the console as well: george drops its
-  UI, each script opens on a fresh screen, and the output stays put with an
-  `exit $rc | q closes` footer until you press q — Ctrl+c instead kills a
-  long-running script and its reader and returns you to the dashboard
-  (george itself is shielded). `gui:` buttons still need X, naturally.
+  pane). The terminal pane runs your shell in a loop that never exits, so
+  Ctrl+D, `exit`, or even a failed command followed by Ctrl+D just gives a
+  fresh prompt (a dirty exit adds a 1-second anti-spin pause) — the terminal
+  cannot take itself or george down. Enter the terminal with Ctrl+t or a
+  click; come back to the dashboard the same way. The **▶ TERM** chip in the
+  LAUNCH column (same row style as the radio and channel chips) focuses the
+  terminal, respawns it if it somehow died, or creates it if it's gone —
+  no keybind to remember; killed panes stay visible (tmux `remain-on-exit`)
+  so the chip always has something to bring back. Run `bin/george` from a
+  bare console tty (no X/wayland) and it falls back to running the dashboard
+  directly in the terminal — george is a pure urwid TUI, so it works on a
+  plain console too (no tmux pane there, just the dashboard). `term:` buttons
+  work on the console as well: george drops its UI, each script opens on a
+  fresh screen, and the output stays put with an `exit $rc | q closes` footer
+  until you press q — Ctrl+c instead kills a long-running script and its
+  reader and returns you to the dashboard (george itself is shielded).
+  `gui:` buttons still need X, naturally.
 - **Random Nina chip** (`[nina]` in `buttons.toml`) — one-audio rule: starts
   by freezing the radio (SIGSTOP, so it resumes where it left off), then
   streams the whole shuffled Nina Simone archive pool (208 songs + 2 whole

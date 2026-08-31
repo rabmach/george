@@ -1,15 +1,100 @@
 #!/bin/sh
-# George launcher. Installed as ~/bin/george; resolves george.py relative
-# to this script's own location so it survives cloning to any path.
-# (One-line usage:  ~/bin/george  or  /path/to/george/bin/george)
-here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-
-# Bare console tty (no X/wayland): alacritty can't start, so run the
+# George launcher. One file, both layouts:
+#   - repo/clone: george.py lives next to bin/ ($here resolution)
+#   - installed copy at ~/bin/george: george.py lives in ~/george
+# X/wayland: ONE alacritty window split by tmux -
+#   pane 0 (top)    = george dashboard
+#   pane 1 (bottom) = a real built-in terminal (see RESPAWN_SHELL below)
+# Ctrl+t (tmux bare -n binding) flips focus between the panes from either
+# side; george's ▶ TERM chip focuses (or resurrects) the terminal pane.
+#
+# On a bare console tty (no X/wayland) there is no alacritty: run the
 # dashboard directly in the current terminal - george is a pure urwid TUI
-# and works on a plain console (no tmux pane, just the dashboard).
-if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
-    exec python3 "$here/../george.py" "$@"
+# and works fine on a console (no tmux split, no built-in terminal pane).
+set -eu
+
+here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+if [ -f "$here/../george.py" ]; then
+    GEORGE_PY="$here/../george.py"
+else
+    GEORGE_PY="$HOME/george/george.py"
 fi
 
+if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+    exec python3 "$GEORGE_PY" "$@"
+fi
+
+SESSION="${GEORGE_TMUX_SESSION:-george}"
+TMUX_CFG="$HOME/.config/george/tmux.conf"
+
+# One-shot diagnostics (e.g. --self-test) run in a plain window, no tmux.
+if [ "$#" -gt 0 ]; then
+    exec alacritty --title george --class georges \
+        -e python3 "$GEORGE_PY" "$@"
+fi
+
+ensure_tmux_cfg() {
+    if [ -f "$TMUX_CFG" ]; then
+        return
+    fi
+    mkdir -p "$(dirname "$TMUX_CFG")"
+    cat > "$TMUX_CFG" <<'TEOF'
+bind -n C-t select-pane -t :.+
+# terminal-pane resurrection support: the shell loop never exits, and a
+# MANUALLY killed pane stays visible (remain-on-exit) so george's ▶ TERM
+# chip can respawn it. No keybind to remember - the chip is the interface.
+set -g remain-on-exit on
+set -g status off
+set -g mouse on
+TEOF
+}
+
+# A session may exist while its george pane is dead (crashed / exited),
+# e.g. left over from a failed earlier start. "Session exists" is NOT proof
+# george is alive. Only attach if pane 0 is genuinely running george.py;
+# otherwise tear it down and rebuild fresh so you never land in an orphan
+# shell-with-no-dashboard.
+session_healthy() {
+    tmux has-session -t "$SESSION" 2>/dev/null || return 1
+    pane_cmd=$(tmux list-panes -t "$SESSION" -F '#{pane_current_command}' \
+               -f '#{==:#{pane_index},0}' 2>/dev/null | head -n1)
+    case "$pane_cmd" in
+        python|python3|python3.*) return 0 ;;
+    esac
+    return 1
+}
+
+# Healthy session exists? Attach to it and keep george running.
+if session_healthy; then
+    exec alacritty --title george --class georges \
+        -e tmux -2 -f "$TMUX_CFG" attach-session -t "$SESSION"
+fi
+
+# Any leftover session here is a dead/stale one - rebuild from scratch.
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+    tmux kill-session -t "$SESSION"
+fi
+
+ensure_tmux_cfg
+
+# Terminal pane wraps $SHELL in a loop that NEVER exits: a clean exit
+# (Ctrl+d at an empty prompt) respawns a fresh prompt instantly; a nonzero
+# exit (failed command + Ctrl+d, `exit 1`, a dying shell binary) just
+# pauses 1s (anti-spin guard) and respawns. The old `|| exit` here turned
+# ANY nonzero shell exit into a pane death - a failed command followed by
+# Ctrl+d silently removed the terminal (found in daily use 2026-08-31).
+# This loop cannot exit, so the pane cannot die from shell activity;
+# remain-on-exit + the ▶ TERM chip cover the rest (see the tmux cfg).
+RESPAWN_SHELL='while :; do '"${SHELL:-/bin/bash}"' || sleep 1; done'
+
+# george pane runs george, then - clean quit or crash alike - tears the whole
+# session down so alacritty closes and we're back on the desktop, never left
+# staring at a fullscreen leftover terminal.
+GEORGE_RUN="cd \"$(dirname -- "$GEORGE_PY")\" && python3 \"$GEORGE_PY\"; tmux kill-session -t \"$SESSION\""
+
 exec alacritty --title george --class georges \
-    -e python3 "$here/../george.py" "$@"
+    -e tmux -2 -f "$TMUX_CFG" new-session -d -s "$SESSION" \
+        "$GEORGE_RUN" \; \
+        split-window -v -p 30 "$RESPAWN_SHELL" \; \
+        select-pane -t :.+ \; \
+        attach-session -t "$SESSION"

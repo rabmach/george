@@ -668,6 +668,50 @@ PALETTE = [
 ]
 
 
+GEORGE_TMUX = os.environ.get("GEORGE_TMUX_SESSION", "george")
+TERM_LOOP = ('while :; do ' + os.environ.get("SHELL", "/bin/bash")
+             + ' || sleep 1; done')
+_SHELL_CMDS = {"bash", "zsh", "sh", "fish", "dash", "ksh"}
+
+
+def _tmux(*args):
+    r = subprocess.run(["tmux", *args], capture_output=True, text=True)
+    return r.returncode, r.stdout.strip()
+
+
+def ensure_terminal_pane(session=GEORGE_TMUX):
+    """Guarantee the tmux session has a living shell pane and focus it.
+
+    Order of preference: focus an existing living shell pane; respawn a
+    dead one (remain-on-exit keeps it visible) with the immortal loop;
+    else split a fresh pane off pane 0. Idempotent - never kills anything.
+    Returns a short status string for the log."""
+    rc, out = _tmux("list-panes", "-t", session,
+                    "-F", "#{pane_id} #{pane_dead} #{pane_current_command}")
+    if rc != 0:
+        return "no tmux session"
+    living, dead = [], []
+    for line in out.splitlines():
+        parts = line.split(maxsplit=2)
+        if len(parts) == 3:
+            (dead if parts[1] == "1" else living).append((parts[0], parts[2]))
+    focus = [p for p in living if p[1] in _SHELL_CMDS]
+    if focus:
+        _tmux("select-pane", "-t", focus[-1][0])
+        return "terminal focused"
+    if dead:
+        rc2, _ = _tmux("respawn-pane", "-t", dead[0][0], TERM_LOOP)
+        if rc2 == 0:
+            _tmux("select-pane", "-t", dead[0][0])
+            return "terminal respawned"
+    rc3, newpane = _tmux("split-window", "-v", "-p", "30", "-P",
+                         "-F", "#{pane_id}", "-t", session + ".0", TERM_LOOP)
+    if rc3 == 0 and newpane:
+        _tmux("select-pane", "-t", newpane)
+        return "terminal created"
+    return "terminal failed"
+
+
 def build_term_argv(cmd, label=None):
     safe = re.sub(r"[^A-Za-z0-9_-]+", "_", label or cmd)[:24]
     script = (f"{cmd}\n"
@@ -1049,6 +1093,9 @@ class App:
             flbl = (fcfg.get("title", "CH 59") or "CH 59").split(" - ")[0]
             self.funny_btn = Click(f" ▶ {flbl} ", self.do_funny)
             items.append(self.funny_btn)
+        items.append(urwid.Divider(" "))
+        self.term_btn = Click(" ▶ TERM ", self.do_term)
+        items.append(self.term_btn)
         del self.left_walker[:]
         self.left_walker.extend(items)
 
@@ -1442,6 +1489,16 @@ class App:
 
     def do_funny(self):
         self._chan_start("funny")
+
+    def do_term(self):
+        if not os.environ.get("TMUX"):
+            # not tmux-hosted (bare X launch or bare console): fall back to
+            # the button machinery - a standalone terminal window on X, a
+            # foreground run on the console (tty mode drops the UI for us).
+            self.spawn({"cmd": os.environ.get("SHELL", "/bin/bash"),
+                        "term": True}, "terminal")
+            return
+        self.log("terminal: " + ensure_terminal_pane(), "accent")
 
     # ---- SCRATCH capture pad ----------------------------------------
     def _stamp_pad(self):
