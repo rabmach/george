@@ -63,46 +63,27 @@ lines = [
   "edit [showcase] lines in buttons.toml",
 ]
 
-# TV -- docks a borderless mpv window over the lower-right center block.
-#   enable   = true/false
-#   title    = label on the block + log line (window itself is borderless)
-#   playlist = m3u file of stream/episode URLs (mpv --shuffle --loop-playlist)
+# TV -- CH 57 / CH 59 are plain LAUNCHER buttons in the left column. Each
+# opens mpv in its OWN separate window with its playlist (shuffled, looping);
+# close the mpv window (or alt-tab away) when done. george itself stays up.
+#   enable   = true/false  (shows the chip)
+#   title    = label on the chip (and the CHANNELS panel)
+#   playlist = m3u file of episode/stream URLs
 #              relative to the george repo, or an absolute/`~` path.
-#   Needs X. Docks over the block, follows resizes, dies with george.
+#   Needs X.
 #   Regenerate the lineup with:  python3 tools/mktv.py <out.m3u>
 
 [tv]
 enable = true
 title = "CH 57"
 playlist = "tv/beaver.m3u"
-# ---- manual dock override (pixels, relative to george window) ----
-# Leave the four below commented to auto-trace the CH 57 block. Uncomment
-# and set any/all to pin mpv's dock rect exactly; edit + `r` reload applies.
-# x = 0
-# y = 0
-# w = 0
-# h = 0
 
-# CH 59 -- silent comedy / cartoons / oddball docs, same embed window.
-# Shares the ONE video slot: starting 59 stops 57 (and vice versa).
+# CH 59 -- silent comedy / cartoons / oddball docs.
 #   Regenerate with:  python3 tools/update-funny.py
 [funny]
 enable = true
 title = "CH 59"
 playlist = "tv/funny.m3u"
-
-# The video slot is also a windowless terminal (undecorated alacritty pinned
-# to the same block). TERM / CH 57 / CH 59 share ONE box: a channel switch
-# buries the terminal, stopping a channel brings it back. [term] enable adds
-# the TERM chip; [boot] autostart picks what's in the slot at login:
-# "term" = focused terminal (default), "tv"/"funny" = that channel,
-# "none" = idle box.
-[term]
-enable = true
-title = "TERM"
-
-[boot]
-autostart = "term"
 
 # Radio chip (bottom of the LAUNCH column; `m` key toggles):
 [radio]
@@ -111,8 +92,8 @@ label = "WICN"
 
 # Random Nina chip (bottom of the LAUNCH column): plays a random Nina Simone
 # track from archive.org. cmd = a script that prints "TITLE<TAB>URL" for
-# --url-only (any picker works). One-audio: starting nina freezes tv + radio,
-# stopping it resumes both.
+# --url-only (any picker works). One-audio: starting nina freezes radio,
+# stopping it resumes it.
 [nina]
 cmd = "nina.sh"
 label = "NINA"

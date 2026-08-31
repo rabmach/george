@@ -66,7 +66,7 @@ EVENT_EVERY = 30
 FEED_EVERY = 900
 FEED_SHOW = 6
 LINK_SLOTS = 12
-TV_TITLE = "george-tv"
+
 
 ICONS = {
     "cpu": "\uf2db", "mem": "\uefc1", "net": "\uf1eb", "disk": "\uf0a0",
@@ -74,6 +74,8 @@ ICONS = {
     "rss": "\uf09e", "music": "\uf001", "term": "\uf489", "clock": "\uf017",
     "gear": "\uf013", "search": "\uf002", "bolt": "\uf0e7",
     "rocket": "\uf135", "radio": "\uf1eb",
+    "host": "\uf109", "os": "\uf17c", "kern": "\uf0c2",
+    "pkg": "\uf1ad", "gpu": "\uf108",
 }
 _ASCII = os.environ.get("GEORGE_ASCII") == "1"
 
@@ -110,29 +112,6 @@ def gauge(frac, width=10):
     frac = max(0.0, min(1.0, frac))
     n = round(frac * width)
     return "▰" * n + "▱" * (width - n)
-
-
-def tv_px_rect(wx, wy, ww, wh, cols, rows):
-    # Terminal size may not be known yet at startup (get_cols_rows() can
-    # return 0); never divide by zero here.
-    if not cols or not rows:
-        cols, rows = 80, 25
-    twv = max(40, int(cols * 0.38))
-    c0 = cols - 35 - twv
-    c1 = cols - 35 - 1
-    body_h = rows - 2
-    merged_h = int((body_h - 1) * 2 / 5)
-    r0 = 1 + merged_h + 1
-    r1 = rows - 1
-    cw = ww / cols
-    ch = wh / rows
-    bw = (c1 - c0) * cw
-    bh = (r1 - r0) * ch
-    w = bw * 0.82
-    h = w * 0.75
-    x = wx + c0 * cw + (bw - w) / 2
-    y = wy + r0 * ch + (bh - h) / 2
-    return (round(x), round(y), max(80, round(w)), max(60, round(h)))
 
 
 def human_gb(num_bytes):
@@ -286,6 +265,16 @@ def mem_info():
     return pct, used / 1024 / 1024
 
 
+def mem_total_gb():
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemTotal:"):
+                return int(line.split()[1]) / 1024 / 1024
+    except (OSError, IndexError, ValueError):
+        pass
+    return 0.0
+
+
 def battery():
     base = Path("/sys/class/power_supply")
     try:
@@ -330,6 +319,43 @@ def fmt_uptime(secs):
     if d:
         return f"{d}d {h}h"
     return f"{h}h {mi}m"
+
+
+def os_pretty():
+    try:
+        with open("/etc/os-release") as f:
+            for ln in f:
+                if ln.startswith("PRETTY_NAME="):
+                    return ln.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    return "Linux"
+
+
+def kernel_version():
+    try:
+        v = Path("/proc/sys/kernel/osrelease").read_text().strip()
+    except OSError:
+        v = "?"
+    return v
+
+
+def cpu_model():
+    try:
+        for ln in Path("/proc/cpuinfo").read_text().splitlines():
+            if ln.startswith("model name"):
+                return ln.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return "?"
+
+
+def cpu_cores():
+    try:
+        return sum(1 for ln in Path("/proc/cpuinfo").read_text().splitlines()
+                   if ln.startswith("processor"))
+    except OSError:
+        return os.cpu_count() or 1
 
 
 def parse_wm(text):
@@ -600,8 +626,6 @@ class Bar(urwid.WidgetWrap):
                 continue
             if title == "Desktop" or not title.strip():
                 continue
-            if TV_TITLE in title:
-                continue
             if wid in seen:
                 continue
             seen.add(wid)
@@ -684,7 +708,13 @@ HELP_TEXT = [
     ("log", " n          nag in 15 minutes            e   new event\n"),
     ("log", " f          find & replace               g   greet\n"),
     ("log", " m          radio on/off                 r   reload buttons.toml\n"),
-    ("log", " v          re-dock tv to CH 57 block    ?   this help\n"),
+    ("log", " CH 57/59   chips open their own mpv window       ?   this help\n"),
+    ("sect", " BUILT-IN TERMINAL (tmux pane below)\n"),
+    ("log", " Ctrl+t      flip focus to the terminal pane / back to george\n"),
+    ("log", " click       click the terminal pane to enter it; click george to\n"),
+    ("log", "             return. In the terminal, Ctrl+D just gives a fresh\n"),
+    ("log", "             prompt - it can never close george. Ctrl+t is the\n"),
+    ("log", "             always-works way back to the dashboard.\n"),
     ("log", " esc        hide george (keeps running; click its chip to raise)\n"),
     ("log", " q          quit                         arrows/tab move focus\n"),
 ]
@@ -719,17 +749,6 @@ class App:
         self._wm_dead = False
         self._radio_proc = None
         self._last_width = None
-        self._tv_proc = None
-        self._tv_geom_last = None
-        self._tv_dock = None
-        self._tv_manual = False
-        self._tv_stack_last = None
-        self._tv_paused = False
-        self._tv_channel = None
-        self._term_proc = None
-        self._term_last_rect = None
-        self._term_xid = None
-        self._vidwin_proc = None
         self._radio_paused = False
         self._nina_proc = None
         self._nina_paused = False
@@ -758,7 +777,7 @@ class App:
         ], dividechars=1)
         footer = urwid.Text(("dim",
             " q quit | esc hide/back | n nag | e event | f find&replace | g greet "
-            "| m radio | v tv redock | r reload | → scratch · tab actions | 1-9 quick | ? help "))
+            "| m radio | r reload | → scratch · tab actions | 1-9 quick | ? help "))
         self.root = urwid.AttrMap(urwid.Frame(body, header=self.bar,
                                               footer=footer), "")
         self.loop = urwid.MainLoop(self.root, PALETTE,
@@ -779,8 +798,6 @@ class App:
         self.cfg["links"] = raw.get("link", [])
         self.cfg["tv"] = raw.get("tv", {})
         self.cfg["funny"] = raw.get("funny", {})
-        self.cfg["term"] = raw.get("term", {})
-        self.cfg["boot"] = raw.get("boot", {})
         self.cfg["showcase"] = raw.get("showcase", {})
         self.cfg["radio"] = raw.get("radio", {})
         self.cfg["nina"] = raw.get("nina", {})
@@ -841,12 +858,6 @@ class App:
                 items.append(btn)
                 if len(self.quick) < 9:
                     self.quick.append((spec, it.get("label")))
-        tcfg = self.cfg.get("term", {})
-        if tcfg.get("enable"):
-            items.append(urwid.Divider(" "))
-            tl = tcfg.get("title", "TERM") or "TERM"
-            self.term_btn = Click(f" ▶ {tl.split(' - ')[0]} ", self.do_term)
-            items.append(self.term_btn)
         rcfg = self.cfg.get("radio", {})
         if rcfg.get("url"):
             items.append(urwid.Divider(" "))
@@ -930,14 +941,15 @@ class App:
         scratchbox = urwid.AttrMap(urwid.LineBox(
             scratchpile, title=f" {ico('music')} SCRATCH "),
             "", {"focus": "frame_f"})
-        self.tv_zone_text = urwid.Text("")
-        self._tv_title = self.cfg.get("tv", {}).get(
-            "title", "CHANNEL 57")
-        self.tv_box = urwid.LineBox(urwid.Filler(self.tv_zone_text, "middle"),
-                                    title=f" {self._tv_title} ")
+        # Right slot: a static "billboard" of the box's identity — same
+        # /proc + sysfs data george already samples, laid out readably.
+        self.p_billboard = urwid.Text("")
+        billbox = urwid.LineBox(urwid.Filler(
+            urwid.Padding(self.p_billboard, left=1, right=1), "middle"),
+            title=f" {ico('host')} THIS BOX ")
         bottom = urwid.Columns([
             ("weight", 1, scratchbox),
-            ("fixed", max(40, int((self._last_width or 190) * 0.38)), self.tv_box),
+            ("fixed", max(40, int((self._last_width or 190) * 0.38)), billbox),
         ], dividechars=1)
         center = urwid.Pile([
             ("weight", 2, merged_box),
@@ -968,35 +980,45 @@ class App:
         self.build_left()
         self.refresh_upcoming()
         self.render_feeds()
-        self.render_tv_zone()
         self.log("config reloaded", "ok")
 
-    def _tv_sync_title(self):
-        if self._tv_channel:
-            name = self._tv_channel
-        elif self._term_alive():
-            name = "term"
-        else:
-            name = "tv"
-        cfg = self.cfg.get(name, {})
-        fallback = {"tv": "CHANNEL 57", "funny": "CHANNEL 59",
-                    "term": "TERMINAL"}.get(name, "TV")
-        title = cfg.get("title") or fallback
-        self._tv_title = title
-        if hasattr(self, "tv_box"):
-            self.tv_box.set_title(f" {title} ")
+    def render_billboard(self):
+        try:
+            host = socket.gethostname()
+            up = fmt_uptime(uptime_secs())
+            osn = os_pretty()
+            kern = kernel_version()
+            cm = cpu_model().replace("(R)", "").replace("(TM)", "")
+            cores = cpu_cores()
 
-    def render_tv_zone(self):
-        tvcfg = self.cfg.get("tv", {})
-        if not tvcfg.get("enable"):
-            txt = ("\n\n\n  tv disabled.  set  enable = true\n"
-                   "  under [tv] in buttons.toml to dock\n"
-                   "  the player over this block.")
-        elif not os.environ.get("DISPLAY"):
-            txt = ("\n\n\n  no X display: tv unavailable.")
-        else:
-            txt = "\n\n\n  tuning..."
-        self.tv_zone_text.set_text(("dim", txt))
+            _, gu = mem_info()
+            fr = disk_free("/")
+            fh = disk_free("/home")
+            tp = cpu_temp() or max_temp()
+            bat, bs = battery()
+            rx, tx = net_bytes(self._iface) if getattr(self, "_iface", None) else (None, None)
+
+            L = [("sect", f" {ico('os')} {osn} "), ("", "\n")]
+            L += [("dim", "  "), ("dim", ico("kern")), ("dim", " "), ("info", kern), ("", "\n")]
+            L += [("dim", "  "), ("accent", f"{ico('host')} {host}"),
+                  ("dim", "   "), ("info", f"{ico('clock')} up {up}"), ("", "\n")]
+            L += [("dim", "  "), ("dim", ico("cpu")), ("dim", " "), ("info", cm), ("", "\n")]
+            L += [("dim", "  "), ("dim", ico("cpu")), ("dim", " "), ("info", f"{cores} cores")]
+            if tp is not None:
+                ta = "crit" if tp > 85 else "warn" if tp > 60 else "ok"
+                L += [("dim", "  "), ("dim", ico("temp")), ("dim", " "), (ta, f"{tp:.0f}C")]
+            L += [("", "\n")]
+            L += [("dim", "  "), ("dim", ico("mem")), ("dim", " "),
+                  ("ok", f"{human_gb(gu)}G / {human_gb(mem_total_gb())}G"), ("", "\n")]
+            L += [("dim", "  "), ("dim", ico("disk")), ("dim", " / "),
+                  ("info", f"{human_gb(fr)}G"), ("dim", f"  ~ {human_gb(fh)}G")]
+            if bat is not None:
+                ba = "crit" if bat < 15 else "warn" if bat < 35 else "ok"
+                L += [("", "\n"), ("dim", "  "), ("dim", ico("bat")), ("dim", " "), (ba, f"{bat}%")]
+            L += [("", "\n")]
+            self.p_billboard.set_text(L)
+        except Exception as e:
+            self.p_billboard.set_text(("dim", f" billboard error: {e}"))
 
     def _screen_size(self):
         try:
@@ -1021,12 +1043,6 @@ class App:
         except OSError:
             pass
 
-    def tv_start(self, loop=None, data=None):
-        self._chan_start("tv")
-
-    def funny_start(self, loop=None, data=None):
-        self._chan_start("funny")
-
     def _chan_start(self, name):
         cfg = self.cfg.get(name, {})
         if name == "tv":
@@ -1046,379 +1062,16 @@ class App:
         if not pl.is_file():
             self.log(f"tv playlist missing: {pl}", "warn")
             return
-        if self._tv_proc is not None and self._tv_proc.poll() is None:
-            if self._tv_paused:
-                self._thaw(self._tv_proc)
-                self._tv_paused = False
-                self.log(f"tv resumed: {disp}", "accent")
-                return
-            if self._tv_channel == name:
-                return
-            # channel switch: kill the current player, keep radio/nina
-            # frozen for the one about to start
-            self._chan_stop_player()
-        if self._term_alive():
-            self.term_stop()
-        rect = self._tv_target_rect()
-        if not rect:
-            self.log("tv: couldn't locate the channel block (is george mapped?)",
-                     "warn")
-            self._retry_tv()
-            return
-        if self._radio_proc is not None and self._radio_proc.poll() is None:
-            if self._freeze(self._radio_proc):
-                self._radio_paused = True
-                self.log("radio paused for tv", "info")
-        if self._nina_proc is not None and self._nina_proc.poll() is None:
-            if self._freeze(self._nina_proc):
-                self._nina_paused = True
-                self.log("nina paused for tv", "info")
-        xid = self._vidwin_create(rect)
-        if not xid:
-            self.log("tv: embedded window failed (george-vidwin?)", "warn")
-            self._retry_tv()
-            return
-        sock = str(Path("~/.local/state").expanduser() / "george-tv.sock")
         try:
-            Path(sock).unlink(missing_ok=True)
-        except OSError:
-            pass
-        ic = self._tv_input_conf()
-        args = ["mpv", f"--wid={xid}", "--loop-playlist", "--shuffle",
-                "--osc=no", "--keepaspect=yes",
-                f"--input-ipc-server={sock}", f"--input-conf={ic}",
-                "--really-quiet", f"--playlist={pl}"]
-        try:
-            cols, nrows = self.loop.screen.get_cols_rows()
-        except Exception:
-            cols, nrows = 0, 0
-        self.log(f"tv dock rect={rect} (cols={cols} rows={nrows})",
-                 "info")
-        self._tv_geom_last = ",".join(map(str, rect))
-        self._tv_dock = rect
-        try:
-            tvlog = Path("~/.local/state").expanduser() / "george-tv.log"
-            tvlog.parent.mkdir(parents=True, exist_ok=True)
-            self._tv_logf = tvlog.open("a")
-            self._tv_logf.write(
-                f"--- {datetime.now():%Y-%m-%d %H:%M:%S} mpv start ---\n")
-            self._tv_proc = subprocess.Popen(
-                args, stdin=subprocess.DEVNULL,
-                stdout=self._tv_logf, stderr=self._tv_logf,
+            subprocess.Popen(
+                ["mpv", "--loop-playlist", "--shuffle", "--force-window",
+                 "--keepaspect=yes", f"--playlist={pl}"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True)
-            self._tv_channel = name
-            self._tv_sync_title()
-            self.log(f"tv on: {disp}", "accent")
+            self.log(f"{disp} opened in its own window", "accent")
         except OSError as e:
             self.log(f"tv failed: {e}", "crit")
 
-    def _chan_stop_player(self):
-        proc, self._tv_proc = self._tv_proc, None
-        self._tv_channel = None
-        self._tv_sync_title()
-        was_paused = self._tv_paused
-        self._tv_paused = False
-        if proc is not None and proc.poll() is None:
-            if was_paused:
-                self._thaw(proc)
-            try:
-                proc.terminate()
-                proc.wait(timeout=5)
-            except (OSError, subprocess.SubprocessError):
-                pass
-        self._vidwin_clear()
-        try:
-            Path("~/.local/state").expanduser().joinpath(
-                "george-tv.sock").unlink(missing_ok=True)
-        except OSError:
-            pass
-
-    def _retake_focus(self, loop=None, tries=14):
-        # retired: the CH57 video now renders into a WM-invisible X window
-        # (see _vidwin_*) that the WM never focuses, so there is no focus
-        # to retake. Kept as a no-op in case a stale alarm is still queued.
-        return
-
-    def _vidwin_path(self):
-        for cand in (str(Path.home() / "bin" / "george-vidwin"),
-                     str(HERE / "george-vidwin")):
-            if Path(cand).is_file():
-                return cand
-        return shutil.which("george-vidwin")
-
-    def _vidwin_up(self):
-        proc = self._vidwin_proc
-        if proc is not None and proc.poll() is None:
-            return True
-        path = self._vidwin_path()
-        if not path:
-            return False
-        try:
-            self._vidwin_proc = subprocess.Popen(
-                [path], stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                text=True, bufsize=1, start_new_session=True)
-        except OSError:
-            self._vidwin_proc = None
-            return False
-        return True
-
-    def _vidwin_send(self, line, reply=False, timeout=3.0):
-        proc = self._vidwin_proc
-        if proc is None or proc.poll() is not None or proc.stdin is None:
-            return None
-        try:
-            proc.stdin.write(line + "\n")
-            proc.stdin.flush()
-            if reply and proc.stdout is not None:
-                got = proc.stdout.readline()
-                return got.strip() if got else None
-        except (OSError, ValueError):
-            self._vidwin_teardown()
-            return None
-        return None
-
-    def _vidwin_create(self, rect):
-        if not self._vidwin_up():
-            return None
-        out = self._vidwin_send(
-            " ".join(("create",) + tuple(str(int(v)) for v in rect)),
-            reply=True)
-        if out and out.startswith("VIDWIN "):
-            return out.split()[1]
-        return None
-
-    def _vidwin_sync(self, rect):
-        if self._vidwin_proc is None:
-            return
-        self._vidwin_send(
-            " ".join(("move",) + tuple(str(int(v)) for v in rect)))
-        self._vidwin_send("raise")
-
-    def _vidwin_clear(self):
-        if self._vidwin_proc is not None:
-            self._vidwin_send("unmap")
-
-    def _vidwin_teardown(self):
-        proc, self._vidwin_proc = self._vidwin_proc, None
-        if proc is None or proc.stdin is None:
-            return
-        try:
-            proc.stdin.write("quit\n")
-            proc.stdin.flush()
-        except (OSError, ValueError):
-            pass
-        try:
-            proc.wait(timeout=3)
-        except (OSError, subprocess.SubprocessError):
-            proc.kill()
-
-    def _tv_input_conf(self):
-        path = Path("~/.config/george").expanduser()
-        path.mkdir(parents=True, exist_ok=True)
-        conf = path / "tv-input.conf"
-        if not conf.is_file():
-            conf.write_text(
-                "MOUSE_BTN0 cycle pause\n"
-                "MOUSE_BTN0_DBL ignore\n"
-                "MOUSE_BTN1 ignore\n"
-                "MOUSE_BTN2 cycle pause\n")
-        return str(conf)
-
-    def tv_ipc(self, cmd):
-        sock = Path("~/.local/state").expanduser() / "george-tv.sock"
-        if not sock.is_socket():
-            return None
-        try:
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.settimeout(2.5)
-            s.connect(str(sock))
-            req = json.dumps({"command": cmd, "request_id": 1}) + "\n"
-            s.sendall(req.encode())
-            buf = b""
-            while True:
-                chunk = s.recv(4096)
-                if not chunk:
-                    break
-                buf += chunk
-                if b'"request_id":1' in buf:
-                    break
-            s.close()
-            for line in buf.splitlines():
-                try:
-                    obj = json.loads(line)
-                except Exception:
-                    continue
-                if obj.get("request_id") == 1:
-                    return obj.get("data")
-        except (OSError, socket.error):
-            return None
-        return None
-
-    def _tv_win_id(self):
-        txt = wm_raw()
-        if not txt:
-            return None
-        for wid, title, _cls in parse_wm(txt):
-            if TV_TITLE in title:
-                return wid
-        return None
-
-    def _tv_anchor(self):
-        if not os.environ.get("DISPLAY"):
-            return None
-        own = self.win_id_quiet()
-        if own:
-            try:
-                out = subprocess.run(
-                    ["xdotool", "getwindowgeometry", "--shell", own],
-                    capture_output=True, text=True, timeout=3).stdout
-            except (OSError, subprocess.SubprocessError):
-                return None
-            geo = dict(line.split("=", 1)
-                       for line in out.splitlines() if "=" in line)
-            try:
-                return (int(geo["X"]), int(geo["Y"]),
-                        int(geo["WIDTH"]), int(geo["HEIGHT"]))
-            except (KeyError, ValueError):
-                return None
-        try:
-            out = subprocess.run(["xdotool", "getdisplaygeometry"],
-                                 capture_output=True, text=True,
-                                 timeout=3).stdout.split()
-            return (0, 0, int(out[0]), int(out[1]))
-        except (OSError, subprocess.SubprocessError, IndexError, ValueError):
-            return None
-
-    def _tv_target_rect(self):
-        anchor = self._tv_anchor()
-        if not anchor:
-            return None
-        cols, nrows = self.loop.screen.get_cols_rows()
-        rect = list(tv_px_rect(*anchor, cols, nrows))
-        tv = self.cfg.get("tv", {})
-        if tv.get("x") is not None:
-            rect[0] = anchor[0] + int(tv["x"])
-        if tv.get("y") is not None:
-            rect[1] = anchor[1] + int(tv["y"])
-        if tv.get("w"):
-            rect[2] = int(tv["w"])
-        if tv.get("h"):
-            rect[3] = int(tv["h"])
-        return tuple(rect)
-
-    def tv_stop(self, return_to_term=True):
-        self._chan_stop_player()
-        if self._radio_paused:
-            rp, self._radio_paused = self._radio_proc, False
-            if rp is not None and rp.poll() is None:
-                self._thaw(rp)
-                self.log("radio resumed", "info")
-        if self._nina_paused:
-            np_, self._nina_paused = self._nina_proc, False
-            if np_ is not None and np_.poll() is None:
-                self._thaw(np_)
-                self.log("nina resumed", "info")
-        if return_to_term and self._term_enabled():
-            self.term_start(focus=False)
-
-    def _term_enabled(self):
-        return bool(self.cfg.get("term", {}).get("enable") and
-                    os.environ.get("DISPLAY"))
-
-    def _term_alive(self):
-        p = self._term_proc
-        return p is not None and p.poll() is None
-
-    _TERM_FOCUS_SCRIPT = (
-        "import sys;from Xlib import display as D,X;"
-        "c=int(sys.argv[1],16);d=D.Display();"
-        "w=d.create_resource_object('window',c);"
-        "cs=w.query_tree().children;"
-        "if cs:cs[0].set_input_focus(X.RevertToParent,X.CurrentTime);d.sync()")
-
-    def _term_focus(self, loop=None, data=None):
-        xid = getattr(self, "_term_xid", None)
-        if not xid:
-            return
-        try:
-            subprocess.Popen(["python3", "-c", self._TERM_FOCUS_SCRIPT, xid],
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
-        except OSError:
-            pass
-
-    def term_start(self, focus=False):
-        if not self._term_enabled():
-            return False
-        if self._term_alive():
-            if focus:
-                self._term_focus()
-            return True
-        if not shutil.which("alacritty"):
-            self.log("term: alacritty not installed", "warn")
-            return False
-        rect = self._tv_target_rect()
-        if not rect:
-            self.log("term: slot rect not found yet", "warn")
-            return False
-        xid = self._vidwin_create(rect)
-        if not xid:
-            self.log("term: embedded window failed (george-vidwin?)", "warn")
-            return False
-        self._term_xid = xid
-        try:
-            self._term_proc = subprocess.Popen(
-                ["alacritty", "--embed", xid,
-                 "-e", os.environ.get("SHELL", "/bin/bash")],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, start_new_session=True)
-        except OSError as e:
-            self.log(f"term: spawn failed: {e}", "crit")
-            self._term_proc = None
-            self._vidwin_clear()
-            return False
-        self._term_last_rect = rect
-        self._tv_sync_title()
-        self.log("term on: embedded into the box", "accent")
-        if focus:
-            self.loop.set_alarm_in(0.7, self._term_focus)
-        return True
-
-    def term_stop(self):
-        proc, self._term_proc = self._term_proc, None
-        self._term_last_rect = None
-        self._term_xid = None
-        if proc is not None and proc.poll() is None:
-            try:
-                proc.terminate()
-                proc.wait(timeout=3)
-            except (OSError, subprocess.SubprocessError):
-                pass
-        self._vidwin_clear()
-        self._tv_sync_title()
-
-    def do_term(self):
-        if not self._term_enabled():
-            self.log("term disabled in buttons.toml", "warn")
-            return
-        if self._tv_proc and self._tv_proc.poll() is None:
-            self.tv_stop()
-            self._term_focus()
-            return
-        if self._term_alive():
-            self._term_focus()
-        else:
-            self.term_start(focus=True)
-
-    def _slot_boot(self, loop=None, data=None):
-        autostart = self.cfg.get("boot", {}).get("autostart", "term")
-        if autostart == "tv":
-            self.tv_start()
-        elif autostart == "funny":
-            self.funny_start()
-        elif autostart == "term":
-            self.term_start(focus=True)
 
     def radio_start(self):
         rcfg = self.cfg.get("radio", {})
@@ -1426,10 +1079,6 @@ class App:
         if not url:
             self.log("radio: no [radio] url configured", "warn")
             return
-        if self._tv_proc and self._tv_proc.poll() is None:
-            if self._freeze(self._tv_proc):
-                self._tv_paused = True
-                self.log("tv paused for radio", "info")
         if self._nina_proc and self._nina_proc.poll() is None:
             if self._freeze(self._nina_proc):
                 self._nina_paused = True
@@ -1466,12 +1115,6 @@ class App:
         lbl = rcfg.get("label", "radio")
         if getattr(self, "radio_btn", None):
             self.radio_btn._t.set_text(f" ▶ RADIO {lbl} ")
-        if self._tv_paused:
-            tp, self._tv_paused = self._tv_proc, False
-            if tp is not None and tp.poll() is None:
-                self._thaw(tp)
-                if not silent:
-                    self.log("tv resumed", "accent")
         if self._nina_paused:
             np_, self._nina_paused = self._nina_proc, False
             if np_ is not None and np_.poll() is None:
@@ -1514,10 +1157,6 @@ class App:
             title, url = parts[0], parts[1]
         else:
             title = ncfg.get("label", "NINA")
-        if self._tv_proc and self._tv_proc.poll() is None:
-            if self._freeze(self._tv_proc):
-                self._tv_paused = True
-                self.log("tv paused for nina", "info")
         if self._radio_proc and self._radio_proc.poll() is None:
             if self._freeze(self._radio_proc):
                 self._radio_paused = True
@@ -1561,12 +1200,6 @@ class App:
             nlbl = ncfg.get("label", "NINA")
             if getattr(self, "nina_btn", None):
                 self.nina_btn._t.set_text(f" ▶ {nlbl.upper()} ")
-        if self._tv_paused:
-            tp, self._tv_paused = self._tv_proc, False
-            if tp is not None and tp.poll() is None:
-                self._thaw(tp)
-                if not silent:
-                    self.log("tv resumed", "accent")
         if self._radio_paused:
             rp, self._radio_paused = self._radio_proc, False
             if rp is not None and rp.poll() is None:
@@ -1587,42 +1220,10 @@ class App:
             self.radio_start()
 
     def do_tv(self):
-        tvcfg = self.cfg.get("tv", {})
-        if not (tvcfg.get("enable") and os.environ.get("DISPLAY")):
-            self.log("tv disabled in buttons.toml", "warn")
-            return
-        if self._tv_proc and self._tv_proc.poll() is None:
-            if self._tv_channel == "tv":
-                self.tv_stop()
-                self.log("tv off", "ok")
-            else:
-                self.tv_start()  # switch CH 59 -> CH 57
-        else:
-            self.tv_start()
+        self._chan_start("tv")
 
     def do_funny(self):
-        fcfg = self.cfg.get("funny", {})
-        if not (fcfg.get("enable") and os.environ.get("DISPLAY")):
-            self.log("funny disabled in buttons.toml", "warn")
-            return
-        if self._tv_proc and self._tv_proc.poll() is None:
-            if self._tv_channel == "funny":
-                self.tv_stop()
-                self.log("tv off", "ok")
-            else:
-                self.funny_start()  # switch CH 57 -> CH 59
-        else:
-            self.funny_start()
-
-    def _retry_tv(self):
-        tries = getattr(self, "_tv_retries", 0)
-        if tries >= 10:
-            self._tv_retries = 0
-            return
-        self._tv_retries = tries + 1
-        if self._tv_proc is not None and self._tv_proc.poll() is None:
-            return
-        self.loop.set_alarm_in(1.0, self.tv_start)
+        self._chan_start("funny")
 
     # ---- SCRATCH capture pad ----------------------------------------
     def _stamp_pad(self):
@@ -1709,118 +1310,6 @@ class App:
         self.scratch_pile.focus_position = 1
         self.mode = "pad"
         self._stamp_pad()
-
-    def _active_window_is_george(self):
-        try:
-            out = subprocess.run(
-                ["xprop", "-root", "_NET_ACTIVE_WINDOW"],
-                capture_output=True, text=True, timeout=3).stdout
-            wid = out.split()[-1] if "window id" in out else None
-            if not wid or wid == "0x0":
-                return True
-            prop = subprocess.run(
-                ["xprop", "-id", wid, "WM_CLASS"],
-                capture_output=True, text=True, timeout=3).stdout
-            return (APP + "s") in prop.lower()
-        except (OSError, subprocess.SubprocessError):
-            return True
-
-    def tv_apply_stack(self):
-        mwid = self._tv_win_id()
-        if not mwid:
-            return
-        flag = "remove,above"
-        if not self.modal and self._active_window_is_george():
-            flag = "add,above"
-        if flag == self._tv_stack_last:
-            return
-        self._tv_stack_last = flag
-        try:
-            subprocess.run(["wmctrl", "-i", "-r", mwid, "-b", flag],
-                           stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=3)
-        except (OSError, subprocess.SubprocessError):
-            self._tv_stack_last = None
-
-    def _reapply_tv(self, rect):
-        mwid = self._tv_win_id()
-        if mwid is None or self.modal:
-            return
-        if not rect:
-            return
-        key = ",".join(map(str, rect))
-        try:
-            for flag in ("remove,fullscreen",
-                         "remove,maximized_vert,maximized_horz"):
-                subprocess.run(["wmctrl", "-i", "-r", mwid, "-b", flag],
-                               stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, timeout=3)
-            subprocess.run(["wmctrl", "-i", "-r", mwid, "-e",
-                            f"0,{rect[0]},{rect[1]},{rect[2]},{rect[3]}"],
-                           stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=3)
-            self._tv_geom_last = key
-        except (OSError, subprocess.SubprocessError):
-            pass
-
-    def _tv_moved_away(self, rect):
-        mwid = self._tv_win_id()
-        if mwid is None or self._tv_dock is None:
-            return False
-        try:
-            out = subprocess.run(
-                ["wmctrl", "-lG"], capture_output=True, text=True,
-                timeout=3).stdout
-        except (OSError, subprocess.SubprocessError):
-            return False
-        for line in out.splitlines():
-            parts = line.split()
-            if len(parts) >= 7 and parts[0] == mwid and TV_TITLE in " ".join(
-                    parts[3:]):
-                try:
-                    x, y, w, h = (int(parts[2]), int(parts[3]),
-                                  int(parts[4]), int(parts[5]))
-                except ValueError:
-                    return False
-                dx = abs(x - rect[0]); dy = abs(y - rect[1])
-                dw = abs(w - rect[2]); dh = abs(h - rect[3])
-                return (dx > 16 or dy > 16 or dw > 16 or dh > 16)
-        return False
-
-    def tv_sync(self):
-        self.tv_apply_stack()
-        proc = self._tv_proc
-        if proc is not None and proc.poll() is not None:
-            rc = proc.returncode
-            self._tv_proc = None
-            self._tv_channel = None
-            self._tv_paused = False
-            self.log(f"tv player exited (rc={rc}); see george-tv.log", "warn")
-        if self._tv_proc is None and not self._term_alive():
-            self._vidwin_clear()
-        if self._term_alive():
-            rect = self._tv_target_rect()
-            if rect and rect != self._term_last_rect:
-                self._term_last_rect = rect
-                self._vidwin_sync(rect)
-        if self._tv_proc is None:
-            return
-        rect = self._tv_target_rect()
-        if not rect:
-            return
-        if self.modal:
-            self._vidwin_clear()
-        else:
-            self._vidwin_sync(rect)
-
-    def restore_tv(self):
-        self._tv_manual = False
-        self._tv_geom_last = None
-        rect = self._tv_target_rect()
-        if rect:
-            self._tv_dock = rect
-            self._reapply_tv(rect)
-        self.log("tv restored to dock", "ok")
 
     def do_nag(self):
         self.spawn({"cmd": "nag in 15"}, "nag set for 15 minutes")
@@ -2057,11 +1546,11 @@ class App:
                 self.p_top.set_text(seg)
             self._proc_prev = samp
             self._proc_dt = now
+            self.render_billboard()
 
             width = self.loop.screen.get_cols_rows()[0]
             self._last_width = width
             self.bar.update(width)
-            self.tv_sync()
         except Exception as e:
             self.log(f"tick error: {e}", "crit")
         self.loop.set_alarm_in(STAT_EVERY, self.tick_stats)
@@ -2142,8 +1631,6 @@ class App:
 
     def open_modal(self, dlg):
         self.modal = dlg
-        self._vidwin_clear()
-        self.tv_apply_stack()
         wrapped = urwid.AttrMap(dlg, {
             None: "modal", "btn": "mfield", "dim": "mdim",
             "sect": "msect", "log": "mfield", "info": "mfield",
@@ -2166,7 +1653,6 @@ class App:
     def close_modal(self):
         self.modal = None
         self.loop.widget = self.root
-        self.tv_apply_stack()
 
     def event_dialog(self):
         d_edit = urwid.Edit(("btn", " date (YYYY-MM-DD): "), date.today().isoformat())
@@ -2274,16 +1760,7 @@ class App:
                 continue
             if self.modal:
                 continue
-            tv_live = (self._tv_proc is not None and
-                       self._tv_proc.poll() is None)
-            if k == " " and tv_live:
-                self.tv_ipc(["cycle", "pause"])
-                continue
             if k == "q":
-                if tv_live:
-                    self.tv_stop()
-                    self.log("tv off", "ok")
-                    continue
                 raise urwid.ExitMainLoop
             elif k == "?":
                 self.help_dialog()
@@ -2297,9 +1774,6 @@ class App:
                 self.do_greet()
             elif k == "m":
                 self.do_radio()
-            elif k == "v":
-                if self._tv_proc and self._tv_proc.poll() is None:
-                    self.restore_tv()
             elif k == "right" and self.mode == "list":
                 self._enter_pad()
             elif k == "tab" and self.mode == "pad":
@@ -2390,28 +1864,34 @@ class App:
         self.loop.set_alarm_in(0.2, attempt, 0)
 
     def run(self):
+        # Ctrl+c (SIGINT) in the terminal is the instinctive "leave this"
+        # key, but here it would hit george and quit it. Neutralise it so an
+        # accidental Ctrl+c never takes the dashboard down; the way out of
+        # the built-in terminal is Ctrl+t (flip to the other tmux pane) or a
+        # click, and q quits george by intent.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         self.log(f"george online. config: {CONFIG_PATH}", "sect")
         self.log("welcome aboard. all systems nominal.", "accent")
         self.do_greet()
         self.refresh_upcoming()
         self.render_feeds()
-        self.render_tv_zone()
         threading.Thread(target=self.feed_worker, daemon=True).start()
         self.tick_stats()
         self.tick_clock()
         self.tick_events()
         self.place_self()
-        self.loop.set_alarm_in(2, self._slot_boot)
         try:
             self.loop.run()
         except KeyboardInterrupt:
             pass
         finally:
-            self.tv_stop(return_to_term=False)
-            self._vidwin_teardown()
-            self.term_stop()
             self.radio_stop(silent=True)
             self.nina_stop(silent=True)
+            # Teardown of the tmux session (so quitting george closes the
+            # whole alacritty window back to the desktop) is owned by the
+            # launcher wrapper in ~/bin/george, which runs `tmux kill-session`
+            # after this process exits - cleaner than guessing the session
+            # id from $TMUX here.
 
 
 def selftest():
@@ -2513,16 +1993,6 @@ def selftest():
         EVENTS_FILE.write_text(backup_txt)
 
     chk("toml loads", CONFIG_PATH.exists())
-
-    r = tv_px_rect(0, 0, 1920, 1080, 190, 50)
-    chk("tv rect inside", 0 <= r[0] and 0 <= r[1]
-        and r[0] + r[2] <= 1920 and r[1] + r[3] <= 1080)
-    chk("tv rect right-low", r[0] > 700 and r[1] > 300)
-    chk("tv rect sane size", r[2] >= 300 and r[3] >= 150)
-    r2 = tv_px_rect(100, 200, 1366, 768, 140, 38)
-    chk("tv rect scales", r2[0] >= 100 and r2[1] >= 200
-        and r2[0] + r2[2] <= 100 + 1366 and r2[1] + r2[3] <= 200 + 768)
-    chk("tv rect min floor", all(v >= 80 for v in (r2[2],)) and r2[3] >= 60)
 
     app = App()
     for opener, name in ((app.event_dialog, "event"), (app.fr_dialog, "fr"),

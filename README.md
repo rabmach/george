@@ -15,37 +15,32 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
   press enter to open the matching tool (iotop, iftop, ncdu, btop...) in a
   new terminal; mapping is in `[click]` of `buttons.toml`. Keyboard-first:
   mouse input is disabled, arrows + enter drive everything.
-- **SHOWCASE + TV** lower center — left block is a wicked handy scratch space that you can save as a note or send off as an email, and, you may keep doing it.
-  (`[showcase]` lines in `buttons.toml`); right block is the video channel: george plays
-  random public-domain *Leave It to Beaver* episodes streamed from archive.org
-  directly **inside** the block (`[tv]` in `buttons.toml`; regenerate lineup
-  with `tools/mktv.py`). It is genuinely embedded, not docked: `george-vidwin`
-  (ships in this repo) keeps one X connection that owns a WM-invisible
-  window, and mpv renders into it with `--wid`. Because the window is
-  invisible to the window manager it can never grab keyboard focus, so your
-  keys stay in george the whole time — arrows, `space` to pause/resume,
-  `q` to stop (a second `q` quits george). You can click the video too:
-  left- or right-click pauses. The overlay follows george's resizes and
-  hides under its dialogs, and dies with george. And there's a **CH 59** — a
-  silent-comedy/cartoons/oddball-docs channel (`[funny]` in `buttons.toml`,
-  regenerate with `tools/update-funny.py`) that shares the same one video
-  slot: starting one stops the other, like flipping channels. The same box
-  is also a **windowless terminal** (`[term]` in `buttons.toml`): an
-  undecorated alacritty pinned exactly to the block, no frame, no alt-tab
-  entry. A channel switch buries the terminal; stopping a channel (`q` /
-  the chip again) brings it back quietly. What's in the slot at login is
-  `[boot] autostart` — `"term"` (default, focused workspace), `"tv"`,
-  `"funny"`, or `"none"`. Listen, I know this is
-  weird, but, random Leave it to Beaver episodes is hilarious so it's in
-  and it's staying.
-- **Random Nina chip** (`[nina]` in `buttons.toml`) — same one-audio rule as
-  the radio: starts by freezing tv + radio (SIGSTOP, so they resume where
-  they left off), then streams the whole shuffled Nina Simone archive pool
-  (208 songs + 2 whole albums, looping) until the chip is hit again — not a
-  one-track stop. The picker answers `--playlist` with a fresh shuffled
-  playlist; the repo ships `cmd = "nina.sh"` as an example. Standalone
-  `nina.sh` (outside george) also toggles: run it again to stop, no need to
-  find the window for `q`.
+- **SHOWCASE + CHANNELS** lower center — left block is a wicked handy scratch
+  space that you can save as a note or send off as an email, and, you may keep
+  doing it (`[showcase]` lines in `buttons.toml`); right block is a small
+  CHANNELS panel. The channels themselves are plain **launcher buttons** in
+  the LAUNCH column: **CH 57** plays random public-domain *Leave It to Beaver*
+  episodes, **CH 59** a silent-comedy/cartoons/oddball-docs lineup
+  (`[tv]` / `[funny]` in `buttons.toml`; the lineup maps are in
+  `tv/*.m3u`, regenerate with `tools/mktv.py` / `tools/update-funny.py`).
+  Each chip opens mpv in **its own separate window** (shuffled, looping) —
+  alt-tab back to george whenever, close the mpv window to stop. No docked or
+  embedded video, no focus tricks, nothing for george to babysit. Listen, I
+  know this is weird, but, random Leave it to Beaver episodes is hilarious so
+  it's in and it's staying.
+- **Built-in terminal** — one alacritty window is split by tmux into two
+  panes: george on top, a real shell below (`bin/george` does this; Ctrl+t,
+  wired as a tmux no-prefix binding, flips focus between them, or click a
+  pane). The terminal pane runs your shell in a loop, so Ctrl+D or `exit`
+  just gives a fresh prompt — it can never take george down. Enter the
+  terminal with Ctrl+t or a click; come back to the dashboard the same way.
+- **Random Nina chip** (`[nina]` in `buttons.toml`) — one-audio rule: starts
+  by freezing the radio (SIGSTOP, so it resumes where it left off), then
+  streams the whole shuffled Nina Simone archive pool (208 songs + 2 whole
+  albums, looping) until the chip is hit again — not a one-track stop. The
+  picker answers `--playlist` with a fresh shuffled playlist; the repo ships
+  `cmd = "nina.sh"` as an example. Standalone `nina.sh` (outside george) also
+  toggles: run it again to stop, no need to find the window for `q`.
 - **Top bar** — clock plus a chip per running/minimized window (via wmctrl).
   Display-only since going keyboard-first; alt-tab / your WM's keys manage
   windows as always.
@@ -67,9 +62,10 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
     george
 
 Keys: `1-9` quick-launch, `n` nag, `e` event, `f` find&replace, `g` greet,
-`r` reload config, `?` help, `esc` hide (alt-tab to raise), `q` quit.
-While the TV is playing, `space` pauses/resumes it and `q` stops it
-instead of quitting george.
+`r` reload config, `?` help, `esc` hide (alt-tab to raise), `q` quit. CH
+57/59 launch mpv in their own window (close it / alt-tab back); the built-in
+terminal is the tmux pane below — Ctrl+t or click to enter/leave, Ctrl+D in
+it only spawns a fresh prompt.
 
 Term buttons hold their window open after the command exits (exit code +
 "enter closes"). Per-item `hold = false` in `buttons.toml` restores
@@ -113,16 +109,7 @@ Covers cpu/net math, wmctrl parsing, calendar grid, RSS+Atom parsing, the
 full find&replace engine against a scratch tree, event round-trips.
 
 Requires: python3-urwid (Python ≥ 3.11 for stdlib `tomllib`), alacritty,
-wmctrl, xdotool, xprop (x11-utils). TV block additionally needs `mpv` and
-**`python3-xlib`** — the embedded-video helper `george-vidwin` (ships in
-this repo) talks X11 directly, so users without it need to install it first:
-
-    sudo apt install python3-xlib
-
-(The helper resolves itself from `~/bin/george-vidwin`, this repo, or your
-`$PATH`, in that order — george tells you if it can't find it.)
-
-Layout note: the CH 57 video is an embedded overlay hugging the
-lower-right of george — the demo config traces a block so its exact size
-depends on terminal rows; tune `[tv] x/y/w/h` in config if the overlay
-doesn't line up with your window size.
+wmctrl, xdotool, xprop (x11-utils), and `tmux` (for the built-in terminal
+panes — Ctrl+t flips focus; already present on most Debian installs). The
+CH 57/59 buttons additionally need `mpv`. Nothing else — the embedded-video
+helper is long gone; channels are plain launcher buttons.
