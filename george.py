@@ -505,9 +505,10 @@ def self_win_id():
 
 
 def wm_cmd(wid, action):
-    flag = {"raise": "-ia", "min": "-i -b add,hidden", "close": "-ic"}[action]
+    args = {"raise": ("-ia",), "min": ("-i", "-b", "add,hidden"),
+            "close": ("-ic",)}[action]
     try:
-        subprocess.Popen(f"wmctrl {flag} {wid}", shell=True,
+        subprocess.Popen(["wmctrl", *args, str(wid)],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError:
         pass
@@ -713,15 +714,26 @@ class Click(urwid.WidgetWrap):
 
 
 class Bar(urwid.WidgetWrap):
+    # Window list refresh cadence (wmctrl spawn). The clock on the right
+    # still updates every stats tick; only the window chips re-query on
+    # this cadence.
+    WM_EVERY = 5.0
+
     def __init__(self, app):
         self._app = app
         self._ranges = []
+        self._wm_txt = None
+        self._wm_ts = 0.0
         self._t = urwid.Text("")
         super().__init__(urwid.AttrMap(self._t, "bar"))
 
     def update(self, width):
         wins = []
-        txt = wm_raw()
+        now = time.monotonic()
+        if now - self._wm_ts >= self.WM_EVERY:
+            self._wm_txt = wm_raw()
+            self._wm_ts = now
+        txt = self._wm_txt
         right = f"{datetime.now():%a %d %b  %H:%M:%S} "
         if txt is None:
             self._ranges = []
@@ -954,23 +966,30 @@ class App:
 
     def _tty_run(self, spec, label=None):
         """Console-tty terminal launch: suspend the urwid screen, run the
-        script in the foreground on this tty (with the same hold wrapper as
-        X mode), then bring george back. Ctrl+c kills the script, not
-        george (SIG_DFL for the child, SIG_IGN restored after)."""
+        script on a FRESH normal-screen page (clear first, so runs never
+        stack), then hold with an exit footer until the user presses q.
+        Scripts that need killing die by Ctrl+c: george's SIGINT shield
+        (SIG_IGN) would inherit into the child across exec, so
+        posix_spawn(setsigdef) resets SIGINT to default in the script
+        process only - Ctrl+c takes down the script and its reader, never
+        george."""
         cmd = spec.get("cmd", "")
         script = cmd
         if spec.get("hold", True):
-            script = (f"{cmd}\n"
+            script = ("clear\n"
+                      f"{cmd}\n"
                       "rc=$?\n"
                       "echo\n"
-                      'echo "--- george: exit $rc | enter closes ---"\n'
-                      "read -r _\n")
+                      'echo "--- george: exit $rc | q closes ---"\n'
+                      'while read -n1 -s k; do [ "$k" = q ] && break; done\n')
         self.log(f"launched in tty: {label or cmd}", "ok")
         self.loop.screen.stop()
         rc = None
         try:
-            signal.signal(signal.SIGINT, signal.SIG_DFL)
-            rc = subprocess.run(["bash", "-c", script]).returncode
+            pid = os.posix_spawn("/bin/bash", ["bash", "-c", script],
+                                 os.environ, setsigdef=[signal.SIGINT])
+            _, status = os.waitpid(pid, 0)
+            rc = os.waitstatus_to_exitcode(status)
         except OSError as e:
             print(f"george: launch failed: {cmd}: {e}")
             try:
@@ -978,10 +997,6 @@ class App:
             except EOFError:
                 pass
         finally:
-            try:
-                signal.signal(signal.SIGINT, signal.SIG_IGN)
-            except (ValueError, OSError):
-                pass
             self.loop.screen.start()
             self.loop.draw_screen()
         if rc not in (0, None):
@@ -1472,7 +1487,9 @@ class App:
             self.log("scratch empty - nothing to send", "warn")
             return
         f = Path("/tmp") / f"george-scratch-{time.time_ns()}.txt"
-        f.write_text(f"To: \nSubject: scratch "
+        fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            fh.write(f"To: \nSubject: scratch "
                      f"[{datetime.now():%Y-%m-%d %H:%M}]\n\n{body}\n")
         subprocess.Popen(["claws-mail", "--compose-from-file", str(f)],
                          stdin=subprocess.DEVNULL,
@@ -2226,111 +2243,9 @@ def selftest():
 _GEORGE_STDIN_KEEPALIVE = None
 
 
-def install_key_logger():
-    if os.environ.get("GEORGE_KEYS", "1") == "0":
-        return
-    klog = Path("~/.local/state").expanduser() / "george-keys.log"
-    klog.parent.mkdir(parents=True, exist_ok=True)
-    kf = klog.open("a")
-
-    def stamp(msg):
-        kf.write(f"{datetime.now():%H:%M:%S.%f} {msg}\n")
-        kf.flush()
-
-    orig_pi = urwid.MainLoop.process_input
-
-    def pi(self, keys):
-        stamp(f"IN {keys!r}")
-        return orig_pi(self, keys)
-
-    urwid.MainLoop.process_input = pi
-
-    try:
-        _Screen = urwid.raw_display.Screen
-        _orig_parse = _Screen.parse_input
-
-        def parse_input(scr, loop, callback, raw_codes, *a, **k):
-            stamp(f"RAW {bytes(raw_codes)!r}")
-            return _orig_parse(scr, loop, callback, raw_codes, *a, **k)
-
-        _Screen.parse_input = parse_input
-    except Exception:
-        pass
-    orig_kp = Click.keypress
-
-    def kp(selfw, size, key):
-        r = orig_kp(selfw, size, key)
-        if r is not key:
-            lbl = str(getattr(selfw._t, "text", "?"))[:24]
-            stamp(f"FIRE {key!r} -> {lbl!r}")
-        return r
-
-    Click.keypress = kp
-
-    import traceback
-    from io import StringIO
-
-    orig_hk = App.hotkey
-
-    def hk(selfw, keys, *a, **k):
-        stamp(f"HOTKEY-IN {keys!r}")
-        return orig_hk(selfw, keys, *a, **k)
-
-    App.hotkey = hk
-
-    orig_dn = App.do_nag
-
-    def dn(selfw, *a, **k):
-        sio = StringIO()
-        traceback.print_stack(file=sio)
-        stamp(f"DONAG CALLER:\n{sio.getvalue()}")
-        return orig_dn(selfw, *a, **k)
-
-    App.do_nag = dn
-
-    orig_sp = App.spawn
-
-    def sp(selfw, spec, label=None):
-        sio = StringIO()
-        traceback.print_stack(file=sio)
-        stamp(f"SPAWN {spec!r} {label!r}\n{sio.getvalue()}")
-        return orig_sp(selfw, spec, label)
-
-    App.spawn = sp
-
-    if os.environ.get("GEORGE_TRACE") == "1":
-        import inspect
-
-        def wrap_cls(cls):
-            if "keypress" not in vars(cls):
-                return
-            origk = cls.keypress
-
-            def tk(selfw, size, key):
-                r = origk(selfw, size, key)
-                if isinstance(key, str) and key[0].islower() and \
-                        str(r) != key and isinstance(r, str):
-                    stamp(f"XFORM {cls.__name__} "
-                          f"{str(selfw)[:30]!r} {key!r}->{r!r}")
-                return r
-
-            cls.keypress = tk
-
-        for modname in ("urwid", "george"):
-            mod = sys.modules.get(modname)
-            if not mod:
-                continue
-            for name, obj in vars(mod).items():
-                if inspect.isclass(obj) and hasattr(obj, "keypress"):
-                    try:
-                        wrap_cls(obj)
-                    except Exception:
-                        pass
-
 if __name__ == "__main__":
     if "--self-test" in sys.argv:
         sys.exit(selftest())
-    install_key_logger()
     try:
         if not sys.stdin.isatty():
             r, w = os.pipe()

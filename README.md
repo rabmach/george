@@ -46,9 +46,10 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
   to running the dashboard directly in the terminal — george is a pure urwid
   TUI, so it works on a plain console too (no tmux pane there, just the
   dashboard). `term:` buttons work on the console as well: george drops its
-  UI, runs the script right in the terminal (same hold-on-exit wrapper as X
-  mode), and comes back when it exits; Ctrl+c kills the script, not george.
-  `gui:` buttons still need X, naturally.
+  UI, each script opens on a fresh screen, and the output stays put with an
+  `exit $rc | q closes` footer until you press q — Ctrl+c instead kills a
+  long-running script and its reader and returns you to the dashboard
+  (george itself is shielded). `gui:` buttons still need X, naturally.
 - **Random Nina chip** (`[nina]` in `buttons.toml`) — one-audio rule: starts
   by freezing the radio (SIGSTOP, so it resumes where it left off), then
   streams the whole shuffled Nina Simone archive pool (208 songs + 2 whole
