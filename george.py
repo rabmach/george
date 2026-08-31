@@ -728,6 +728,7 @@ class App:
         self._tv_channel = None
         self._term_proc = None
         self._term_last_rect = None
+        self._term_xid = None
         self._vidwin_proc = None
         self._radio_paused = False
         self._nina_proc = None
@@ -1387,6 +1388,7 @@ class App:
     def term_stop(self):
         proc, self._term_proc = self._term_proc, None
         self._term_last_rect = None
+        self._term_xid = None
         if proc is not None and proc.poll() is None:
             try:
                 proc.terminate()
@@ -1794,13 +1796,13 @@ class App:
             self._tv_channel = None
             self._tv_paused = False
             self.log(f"tv player exited (rc={rc}); see george-tv.log", "warn")
-        if self._tv_proc is None:
+        if self._tv_proc is None and not self._term_alive():
             self._vidwin_clear()
         if self._term_alive():
             rect = self._tv_target_rect()
             if rect and rect != self._term_last_rect:
                 self._term_last_rect = rect
-                self._term_pin(rect)
+                self._vidwin_sync(rect)
         if self._tv_proc is None:
             return
         rect = self._tv_target_rect()
