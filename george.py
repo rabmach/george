@@ -1329,45 +1329,23 @@ class App:
         p = self._term_proc
         return p is not None and p.poll() is None
 
-    def _term_win_id(self):
-        try:
-            out = subprocess.run(
-                ["xdotool", "search", "--class", "george-box"],
-                capture_output=True, text=True, timeout=3).stdout.split()
-        except (OSError, subprocess.SubprocessError):
-            return None
-        return out[-1] if out else None
+    _TERM_FOCUS_SCRIPT = (
+        "import sys;from Xlib import display as D,X;"
+        "c=int(sys.argv[1],16);d=D.Display();"
+        "w=d.create_resource_object('window',c);"
+        "cs=w.query_tree().children;"
+        "if cs:cs[0].set_input_focus(X.RevertToParent,X.CurrentTime);d.sync()")
 
-    def _term_pin(self, rect=None, loop=None, data=None):
-        if rect is None:
-            rect = self._tv_target_rect()
-        if not rect:
+    def _term_focus(self, loop=None, data=None):
+        xid = getattr(self, "_term_xid", None)
+        if not xid:
             return
-        wid = self._term_win_id()
-        if not wid:
-            return
-        x, y, w, h = rect
         try:
-            subprocess.Popen(["wmctrl", "-i", "-r", wid, "-e",
-                              f"0,{x},{y},{w},{h}"],
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
-            subprocess.Popen(["wmctrl", "-i", "-r", wid,
-                              "-b", "add,above,skip_taskbar,skip_pager"],
+            subprocess.Popen(["python3", "-c", self._TERM_FOCUS_SCRIPT, xid],
                              stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL)
         except OSError:
             pass
-
-    def _term_focus(self):
-        wid = self._term_win_id()
-        if wid:
-            try:
-                subprocess.Popen(["wmctrl", "-i", "-a", wid],
-                                 stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL)
-            except OSError:
-                pass
 
     def term_start(self, focus=False):
         if not self._term_enabled():
@@ -1383,30 +1361,27 @@ class App:
         if not rect:
             self.log("term: slot rect not found yet", "warn")
             return False
-        x, y, w, h = rect
-        cols = max(24, int(w / 8))
-        rows = max(8, int(h / 16))
+        xid = self._vidwin_create(rect)
+        if not xid:
+            self.log("term: embedded window failed (george-vidwin?)", "warn")
+            return False
+        self._term_xid = xid
         try:
             self._term_proc = subprocess.Popen(
-                ["alacritty", "--class", "george-box", "--title", "george-box",
-                 "-o", f'window.dimensions.columns={cols}',
-                 "-o", f"window.dimensions.lines={rows}",
-                 "-o", f"window.position.x={x}",
-                 "-o", f"window.position.y={y}",
-                 "-o", 'window.decorations="None"',
+                ["alacritty", "--embed", xid,
                  "-e", os.environ.get("SHELL", "/bin/bash")],
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL, start_new_session=True)
         except OSError as e:
             self.log(f"term: spawn failed: {e}", "crit")
             self._term_proc = None
+            self._vidwin_clear()
             return False
         self._term_last_rect = rect
         self._tv_sync_title()
-        self.log("term on", "accent")
-        self.loop.set_alarm_in(0.8, self._term_pin, rect)
+        self.log("term on: embedded into the box", "accent")
         if focus:
-            self.loop.set_alarm_in(1.5, self._term_focus)
+            self.loop.set_alarm_in(0.7, self._term_focus)
         return True
 
     def term_stop(self):
@@ -1418,6 +1393,7 @@ class App:
                 proc.wait(timeout=3)
             except (OSError, subprocess.SubprocessError):
                 pass
+        self._vidwin_clear()
         self._tv_sync_title()
 
     def do_term(self):

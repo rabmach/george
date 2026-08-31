@@ -3,7 +3,7 @@
 TUI sort of a "control center" for your Debian desktop because why the hell not. One python process (stdlib + urwid only,
 ~30 MB RAM, ~0% idle CPU) that opens fullscreen at X login and gives you:
 
-![george screenshot](27aug-george.jpg)
+![george screenshot](georgeint.jpg)
 
 - **LAUNCH** column — config-driven buttons that launch whatever is on your
   `$PATH` (your own scripts, apps, system tools). Configure in `buttons.toml`
