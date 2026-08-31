@@ -15,19 +15,27 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
   press enter to open the matching tool (iotop, iftop, ncdu, btop...) in a
   new terminal; mapping is in `[click]` of `buttons.toml`. Keyboard-first:
   mouse input is disabled, arrows + enter drive everything.
-- **SHOWCASE + CHANNELS** lower center — left block is a wicked handy scratch
+- **SHOWCASE + THIS BOX** lower center — left block is a wicked handy scratch
   space that you can save as a note or send off as an email, and, you may keep
-  doing it (`[showcase]` lines in `buttons.toml`); right block is a small
-  CHANNELS panel. The channels themselves are plain **launcher buttons** in
+  doing it (`[showcase]` lines in `buttons.toml`); right block is a
+  fastfetch-style **THIS BOX** readout (PC, OS + kernel + uptime, WM + GTK
+  theme + package count, init, date, load, processes, memory, partitions) —
+  all built from george's own `/proc` + `/sys` + `/etc` reads, **zero
+  subprocesses**, same numbers fastfetch would show. The channels themselves
+  are plain **launcher buttons** in
   the LAUNCH column: **CH 57** plays random public-domain *Leave It to Beaver*
   episodes, **CH 59** a silent-comedy/cartoons/oddball-docs lineup
   (`[tv]` / `[funny]` in `buttons.toml`; the lineup maps are in
   `tv/*.m3u`, regenerate with `tools/mktv.py` / `tools/update-funny.py`).
-  Each chip opens mpv in **its own separate window** (shuffled, looping) —
+  Each chip opens mpv in **its own separate window** (shuffled, looping,
+  tiled ~60% top-right so george stays visible behind it — `f` fullscreens
+  it if you want) —
   alt-tab back to george whenever, close the mpv window to stop. No docked or
   embedded video, no focus tricks, nothing for george to babysit. Listen, I
   know this is weird, but, random Leave it to Beaver episodes is hilarious so
-  it's in and it's staying.
+  it's in and it's staying. The george window itself starts undecorated if
+  you give openbox a rule for it (`<application class="georges"><decor>no</decor>
+  </application>` in `~/.config/openbox/rc.xml`).
 - **Built-in terminal** — one alacritty window is split by tmux into two
   panes: george on top, a real shell below (`bin/george` does this; Ctrl+t,
   wired as a tmux no-prefix binding, flips focus between them, or click a

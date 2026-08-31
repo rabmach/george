@@ -358,6 +358,118 @@ def cpu_cores():
         return os.cpu_count() or 1
 
 
+def dmi_product():
+    try:
+        base = Path("/sys/class/dmi/id")
+        pn = (base / "product_name").read_text().strip()
+        pv = (base / "product_version").read_text().strip()
+        return pn, pv
+    except OSError:
+        return "", ""
+
+
+def gtk_theme():
+    for p, tag in ((Path.home() / ".config/gtk-3.0/settings.ini", "GTK3"),
+                   (Path.home() / ".config/gtk-4.0/settings.ini", "GTK4")):
+        try:
+            for ln in p.read_text().splitlines():
+                if ln.strip().startswith("gtk-theme-name"):
+                    return ln.split("=", 1)[1].strip(), tag
+        except OSError:
+            continue
+    return "", ""
+
+
+KNOWN_WMS = ("openbox", "mutter", "gnome-shell", "kwin_x11", "kwin_wayland",
+             "xfwm4", "marco", "compiz", "fluxbox", "i3", "sway", "bspwm",
+             "awesome", "dwm", "windowmaker", "icewm", "jwm")
+
+
+def detect_wm():
+    if os.environ.get("WAYLAND_DISPLAY"):
+        sess = "Wayland"
+    elif os.environ.get("DISPLAY"):
+        sess = "X11"
+    else:
+        sess = "?"
+    try:
+        for n in os.listdir("/proc"):
+            if not n.isdigit():
+                continue
+            try:
+                comm = Path("/proc", n, "comm").read_text().strip()
+            except OSError:
+                continue
+            if comm in KNOWN_WMS:
+                return comm, sess
+    except OSError:
+        pass
+    return "", sess
+
+
+def dpkg_stats():
+    """(installed_count, systemd_version) straight from the dpkg database —
+    no dpkg/apt subprocess. One big read: call once and cache."""
+    count = 0
+    sysd = ""
+    pkg, installed, ver = "", False, ""
+
+    def close_stanza():
+        nonlocal count, sysd, pkg, installed, ver
+        if installed:
+            if pkg == "systemd" and not sysd:
+                sysd = ver
+        pkg, installed, ver = "", False, ""
+
+    try:
+        for ln in Path("/var/lib/dpkg/status").read_text(errors="replace").splitlines():
+            if not ln:
+                close_stanza()
+            elif ln.startswith("Package: ") and pkg == "":
+                pkg = ln[9:].strip()
+            elif ln.startswith("Status: ") and "install ok installed" in ln:
+                installed = True
+                count += 1
+            elif ln.startswith("Version: ") and ver == "":
+                ver = ln[9:].strip()
+        close_stanza()
+    except OSError:
+        pass
+    return count, sysd
+
+
+def fstype_for(path):
+    try:
+        best, ftype = "", ""
+        for ln in Path("/proc/mounts").read_text().splitlines():
+            f = ln.split(None, 3)
+            if len(f) < 3:
+                continue
+            mnt = f[1]
+            if path == mnt or path.startswith(mnt + "/"):
+                if len(mnt) > len(best):
+                    best, ftype = mnt, f[2]
+        return ftype
+    except OSError:
+        return ""
+
+
+def disk_stat(path):
+    st = os.statvfs(path)
+    total = st.f_blocks * st.f_frsize
+    free = st.f_bavail * st.f_frsize
+    used = total - free
+    pct = used / total * 100.0 if total else 0.0
+    return used / 1024 ** 3, total / 1024 ** 3, pct
+
+
+def proc_count():
+    try:
+        return sum(1 for n in os.listdir("/proc") if n.isdigit())
+    except OSError:
+        return 0
+
+
 def parse_wm(text):
     wins = []
     for line in text.splitlines():
@@ -945,7 +1057,7 @@ class App:
         # /proc + sysfs data george already samples, laid out readably.
         self.p_billboard = urwid.Text("")
         billbox = urwid.LineBox(urwid.Filler(
-            urwid.Padding(self.p_billboard, left=1, right=1), "middle"),
+            urwid.Padding(self.p_billboard, left=1, right=1), "top"),
             title=f" {ico('host')} THIS BOX ")
         bottom = urwid.Columns([
             ("weight", 1, scratchbox),
@@ -984,38 +1096,72 @@ class App:
 
     def render_billboard(self):
         try:
-            host = socket.gethostname()
-            up = fmt_uptime(uptime_secs())
-            osn = os_pretty()
-            kern = kernel_version()
-            cm = cpu_model().replace("(R)", "").replace("(TM)", "")
-            cores = cpu_cores()
+            if getattr(self, "_bb_static", None) is None:
+                pn, pv = dmi_product()
+                wm, sess = detect_wm()
+                theme, tag = gtk_theme()
+                pkgs, sysd = dpkg_stats()
+                pc = f"{pn} ({pv})".strip() if pn else "?"
+                self._bb_static = {
+                    "pc": pc,
+                    "os": os_pretty(),
+                    "kern": kernel_version(),
+                    "wm": f"{wm} ({sess})" if wm else sess,
+                    "theme": f"{theme} [{tag}]" if theme else "",
+                    "pkgs": pkgs, "sysd": sysd,
+                    "fsr": fstype_for("/"), "fsh": fstype_for("/home"),
+                }
+            S = self._bb_static
 
-            _, gu = mem_info()
-            fr = disk_free("/")
-            fh = disk_free("/home")
-            tp = cpu_temp() or max_temp()
-            bat, bs = battery()
-            rx, tx = net_bytes(self._iface) if getattr(self, "_iface", None) else (None, None)
+            la = os.getloadavg()
+            cores = os.cpu_count() or 1
+            la1 = ("crit" if la[0] > cores * 1.5
+                   else "warn" if la[0] > cores * 0.7 else "ok")
+            mp, gu = mem_info()
+            matt = "crit" if mp > 90 else "warn" if mp > 75 else "ok"
+            ur_, tr_, up_ = disk_stat("/")
+            hr_, ht_, hp_ = disk_stat("/home")
+            da = "crit" if up_ > 90 else "warn" if up_ > 75 else "ok"
+            dh = "crit" if hp_ > 90 else "warn" if hp_ > 75 else "ok"
 
-            L = [("sect", f" {ico('os')} {osn} "), ("", "\n")]
-            L += [("dim", "  "), ("dim", ico("kern")), ("dim", " "), ("info", kern), ("", "\n")]
-            L += [("dim", "  "), ("accent", f"{ico('host')} {host}"),
-                  ("dim", "   "), ("info", f"{ico('clock')} up {up}"), ("", "\n")]
-            L += [("dim", "  "), ("dim", ico("cpu")), ("dim", " "), ("info", cm), ("", "\n")]
-            L += [("dim", "  "), ("dim", ico("cpu")), ("dim", " "), ("info", f"{cores} cores")]
-            if tp is not None:
-                ta = "crit" if tp > 85 else "warn" if tp > 60 else "ok"
-                L += [("dim", "  "), ("dim", ico("temp")), ("dim", " "), (ta, f"{tp:.0f}C")]
-            L += [("", "\n")]
-            L += [("dim", "  "), ("dim", ico("mem")), ("dim", " "),
-                  ("ok", f"{human_gb(gu)}G / {human_gb(mem_total_gb())}G"), ("", "\n")]
-            L += [("dim", "  "), ("dim", ico("disk")), ("dim", " / "),
-                  ("info", f"{human_gb(fr)}G"), ("dim", f"  ~ {human_gb(fh)}G")]
-            if bat is not None:
-                ba = "crit" if bat < 15 else "warn" if bat < 35 else "ok"
-                L += [("", "\n"), ("dim", "  "), ("dim", ico("bat")), ("dim", " "), (ba, f"{bat}%")]
-            L += [("", "\n")]
+            def K(k):
+                return ("accent", f" {k:<4}")
+
+            AR = ("dim", " -> ")
+            NL = ("", "\n")
+
+            def T():
+                return ("dim", " \u251c\u2500 ")
+
+            def E():
+                return ("dim", " \u2514\u2500 ")
+
+            L = []
+            L += [K("PC"), AR, ("info", S["pc"]), NL]
+            L += [K("OS"), AR, ("info", S["os"]), NL]
+            L += [T(), ("dim", "kernel "), ("info", S["kern"]), NL]
+            L += [E(), ("dim", "up "), ("info", fmt_uptime(uptime_secs())), NL]
+            L += [K("WM"), AR, ("info", S["wm"]), NL]
+            if S["theme"]:
+                L += [T(), ("dim", "theme "), ("info", S["theme"]), NL]
+            L += [E(), ("dim", f"{S['pkgs']} pkgs "),
+                  ("dim", "(dpkg)"), NL]
+            init = "systemd" + (f" {S['sysd']}" if S["sysd"] else "")
+            L += [K("INIT"), AR, ("info", init), NL]
+            L += [K("DATE"), AR, ("info",
+                  datetime.now().strftime("%Y-%m-%d %H:%M:%S")), NL]
+            L += [K("LOAD"), AR, (la1, f"{la[0]:.2f} "),
+                  ("dim", f"{la[1]:.2f} {la[2]:.2f}"), NL]
+            L += [K("PROC"), AR, ("info", str(proc_count())), NL]
+            L += [K("MEM"), AR, (matt, f"{gu:.1f}G / "
+                                       f"{mem_total_gb():.1f}G "),
+                  ("dim", f"({mp:.0f}%)"), NL]
+            L += [K("DISK"), AR, ("dim", "/ "),
+                  (da, f"{ur_:.1f}/{tr_:.0f}G "),
+                  ("dim", f"({up_:.0f}%) {S['fsr']}"), NL]
+            L += [("dim", " " * 6 + "\u2514\u2500 "), ("dim", "~ "),
+                  (dh, f"{hr_:.1f}/{ht_:.0f}G "),
+                  ("dim", f"({hp_:.0f}%) {S['fsh']}"), NL]
             self.p_billboard.set_text(L)
         except Exception as e:
             self.p_billboard.set_text(("dim", f" billboard error: {e}"))
@@ -1063,14 +1209,31 @@ class App:
             self.log(f"tv playlist missing: {pl}", "warn")
             return
         try:
-            subprocess.Popen(
-                ["mpv", "--loop-playlist", "--shuffle", "--force-window",
-                 "--keepaspect=yes", f"--playlist={pl}"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                start_new_session=True)
+            args = ["mpv", "--loop-playlist", "--shuffle", "--force-window",
+                    "--keepaspect=yes", f"--playlist={pl}"]
+            g = self._chan_geometry()
+            if g:
+                args += [f"--geometry={g}"]
+            subprocess.Popen(args, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL,
+                             start_new_session=True)
             self.log(f"{disp} opened in its own window", "accent")
         except OSError as e:
             self.log(f"tv failed: {e}", "crit")
+
+    def _chan_geometry(self):
+        """Tiled ~60% window in the top-right so george stays visible behind
+        it (alt-tab back is demonstrable); falls back to None (WM default)."""
+        s = self._screen_size()
+        if not s:
+            return None
+        sw, sh = s
+        w = int(sw * 0.6)
+        h = int(sh * 0.6)
+        margin = 8
+        x = sw - w - margin
+        y = margin
+        return f"{w}x{h}+{x}+{y}"
 
 
     def radio_start(self):
