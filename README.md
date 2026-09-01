@@ -4,10 +4,10 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
 ~30 MB RAM, ~0% idle CPU) that opens fullscreen at X login and gives you:
 
 george in X
-![george screenshot](georgeint.jpg)
+![george X](georgeint.jpg)
 
 george in a tty:
-![george screenshot](george-in-tty.jpg)
+![george tty](george-in-tty.jpg)
 
 
 - **LAUNCH** column — config-driven buttons that launch whatever is on your
