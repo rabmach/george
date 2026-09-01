@@ -1002,7 +1002,13 @@ class App:
                 argv = ["alacritty", "--title", f"george:{safe}",
                         "-e"] + argv
         try:
-            subprocess.Popen(argv, stdout=subprocess.DEVNULL,
+            # stdin=DEVNULL is the whole point: a child that inherits the
+            # dashboard's pty (e.g. a TUI app launched without term=true)
+            # competes with urwid for the same input queue - first read()
+            # wins per byte, so the child eats keystrokes and george goes
+            # deaf until it exits. Detached means ALL three std fds.
+            subprocess.Popen(argv, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, start_new_session=True)
             self.log(f"launched: {label or cmd}", "ok")
         except OSError as e:
@@ -1316,7 +1322,8 @@ class App:
             g = self._chan_geometry()
             if g:
                 args += [f"--geometry={g}"]
-            subprocess.Popen(args, stdout=subprocess.DEVNULL,
+            subprocess.Popen(args, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL,
                              start_new_session=True)
             self.log(f"{disp} opened in its own window", "accent")
@@ -1594,6 +1601,7 @@ class App:
     def do_greet(self):
         try:
             subprocess.Popen([str(Path("~/bin/greet.sh").expanduser())],
+                             stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL,
                              start_new_session=True)
@@ -1658,6 +1666,7 @@ class App:
         try:
             if br:
                 subprocess.Popen(shlex.split(br) + [url],
+                                 stdin=subprocess.DEVNULL,
                                  stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL,
                                  start_new_session=True)
