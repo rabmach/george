@@ -4,7 +4,7 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
 ~30 MB RAM, ~0% idle CPU) that opens fullscreen at X login and gives you:
 
 george in X
-![george X](georgeint.jpg)
+![george X](george-x.jpg)
 
 george in a tty:
 ![george tty](george-in-tty.jpg)
