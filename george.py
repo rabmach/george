@@ -883,6 +883,16 @@ HELP_TEXT = [
     ("log", "             return. In the terminal, Ctrl+D just gives a fresh\n"),
     ("log", "             prompt - it can never close george. Ctrl+t is the\n"),
     ("log", "             always-works way back to the dashboard.\n"),
+    ("sect", "TTY MODE (no X - george runs right in the console)\n"),
+    ("log", " Same tmux session as X: george top, shell bottom, Ctrl+t\n"),
+    ("log", " flips. No ▶ TERM chip here - the terminal is built in, the\n"),
+    ("log", " shell loop never dies, so there is nothing to rescue.\n"),
+    ("log", " Bare run (no launcher): the chip opens a command line; type\n"),
+    ("log", " a command, enter runs it full-screen (fresh page, exit\n"),
+    ("log", " code, q closes - Ctrl+c kills the command, never george),\n"),
+    ("log", " then the line reopens. A trailing & runs it detached:\n"),
+    ("log", " george stays on screen (ttysnap& for a screenshot) and the\n"),
+    ("log", " line closes. Plain enter = readable output.\n"),
     ("log", " esc        hide george (keeps running; click its chip to raise)\n"),
     ("log", " q          quit                         arrows/tab move focus\n"),
 ]
@@ -994,6 +1004,9 @@ class App:
             self._tty_run(spec, label)
             return
         argv = shlex.split(cmd)
+        if spec.get("shell"):
+            # full shell semantics for typed commands (pipes, &&, globs)
+            argv = ["/bin/bash", "-c", cmd]
         if term:
             if spec.get("hold", True):
                 argv = build_term_argv(cmd, label)
@@ -1100,10 +1113,27 @@ class App:
             self.funny_btn = Click(f" ▶ {flbl} ", self.do_funny)
             items.append(self.funny_btn)
         items.append(urwid.Divider(" "))
-        self.term_btn = Click(" ▶ TERM ", self.do_term)
-        items.append(self.term_btn)
+        if self._term_chip_needed():
+            self.term_btn = Click(" ▶ TERM ", self.do_term)
+            items.append(self.term_btn)
+        else:
+            # tmux-hosted console george: the terminal pane is built-in and
+            # the shell loop is immortal, so nothing needs rescuing and
+            # Ctrl+t is the flip - the chip would only duplicate it.
+            self.term_btn = None
         del self.left_walker[:]
         self.left_walker.extend(items)
+
+    def _term_chip_needed(self):
+        """▶ TERM only earns its row when there is no built-in pane to
+        flip to: X mode (tmux pane or alacritty window) and the bare
+        no-tmux console run (there the chip opens the command line). A
+        tmux-hosted console george has the terminal right there and the
+        shell loop is immortal, so the chip would duplicate Ctrl+t and
+        isn't drawn."""
+        if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+            return True
+        return not os.environ.get("TMUX")
 
     def build_center(self):
         self.p_cpu = urwid.Text("")
@@ -1499,13 +1529,64 @@ class App:
 
     def do_term(self):
         if not os.environ.get("TMUX"):
-            # not tmux-hosted (bare X launch or bare console): fall back to
-            # the button machinery - a standalone terminal window on X, a
-            # foreground run on the console (tty mode drops the UI for us).
+            if not os.environ.get("DISPLAY"):
+                # bare console: there is no tmux pane and no terminal
+                # window to spawn - the closest thing to a built-in
+                # terminal here is a command line inside the dashboard;
+                # typed commands run in the foreground via the same
+                # machinery as tty buttons (fresh page, exit code, q
+                # closes, Ctrl+c kills the command - never george).
+                self.cmd_prompt()
+                return
+            # not tmux-hosted bare X: standalone terminal window
             self.spawn({"cmd": os.environ.get("SHELL", "/bin/bash"),
                         "term": True}, "terminal")
             return
         self.log("terminal: " + ensure_terminal_pane(), "accent")
+
+    def cmd_prompt(self):
+        """TTY command line. george on a bare console has no tmux pane,
+        so the TERM chip opens this instead of the old fallback - which
+        ran an interactive shell through _tty_run: the shell never
+        exits, so the dashboard stayed hidden behind a full-screen
+        takeover until you typed exit. This keeps the dashboard visible
+        and turns the chip into a mini shell session: type a command,
+        enter runs it on a fresh page, q closes the hold footer, the
+        line reopens."""
+        c_edit = urwid.Edit(("btn", " cmd: "))
+
+        def run(_btn=None):
+            cmd = c_edit.get_edit_text().strip()
+            if not cmd:
+                return
+            if cmd.endswith("&"):
+                bg = cmd[:-1].strip()
+                if not bg:
+                    return
+                # background run: george stays on screen - side-effect
+                # commands (screenshots, launches) fire while the
+                # dashboard keeps rendering; the line closes so the shot
+                # catches plain george. Real shell semantics, fully
+                # detached std fds.
+                self.close_modal()
+                self.spawn({"cmd": bg, "shell": True}, f"bg: {bg}")
+                return
+            self.close_modal()
+            self._tty_run({"cmd": cmd}, f"cmd: {cmd}")
+            self.cmd_prompt()
+
+        dlg = Dialog(
+            urwid.Filler(urwid.Pile([
+                ("flow", c_edit),
+                ("flow", urwid.Divider(" ")),
+                ("flow", urwid.Columns(
+                    [Click(" run ", run),
+                     Click(" close ", self.close_modal)], dividechars=1)),
+            ]), "top"),
+            "COMMAND LINE (tty)",
+            hint="enter runs | cmd& runs detached (george stays) | esc closes")
+        dlg.cmd_run = run
+        self.open_modal(dlg)
 
     # ---- SCRATCH capture pad ----------------------------------------
     def _stamp_pad(self):
@@ -2044,6 +2125,14 @@ class App:
                     if wid:
                         wm_cmd(wid, "min")
                 continue
+            if k == "enter" and self.modal is not None:
+                # Edit hands 'enter' through; route it to the command
+                # line's run when that modal is open (other modals have
+                # no cmd_run attribute and keep the old swallow).
+                run_fn = getattr(self.modal, "cmd_run", None)
+                if run_fn is not None:
+                    run_fn()
+                continue
             if self.modal:
                 continue
             if k == "q":
@@ -2173,11 +2262,23 @@ class App:
         finally:
             self.radio_stop(silent=True)
             self.nina_stop(silent=True)
-            # Teardown of the tmux session (so quitting george closes the
-            # whole alacritty window back to the desktop) is owned by the
-            # launcher wrapper in ~/bin/george, which runs `tmux kill-session`
-            # after this process exits - cleaner than guessing the session
-            # id from $TMUX here.
+            # Teardown of the tmux session is owned HERE: the launchers'
+            # pane-0 command is a bare python3 exec (no shell tail), so on
+            # any clean exit - q or a handled crash - george kills its own
+            # session and the whole window/console closes. A hard kill (-9)
+            # skips this on purpose; the launcher's next run then sees
+            # pane_dead=1 and rebuilds instead of attaching to a corpse.
+            # A bare `python3 george.py` run (no launcher) has neither env
+            # set, so nothing is touched.
+            sess = os.environ.get("GEORGE_TMUX_SESSION")
+            if sess and os.environ.get("TMUX"):
+                try:
+                    subprocess.run(["tmux", "kill-session", "-t", sess],
+                                   stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, timeout=5)
+                except (OSError, subprocess.SubprocessError):
+                    pass
 
 
 def selftest():

@@ -47,15 +47,33 @@ TUI sort of a "control center" for your Debian desktop because why the hell not.
   LAUNCH column (same row style as the radio and channel chips) focuses the
   terminal, respawns it if it somehow died, or creates it if it's gone —
   no keybind to remember; killed panes stay visible (tmux `remain-on-exit`)
-  so the chip always has something to bring back. Run `bin/george` from a
-  bare console tty (no X/wayland) and it falls back to running the dashboard
-  directly in the terminal — george is a pure urwid TUI, so it works on a
-  plain console too (no tmux pane there, just the dashboard). `term:` buttons
-  work on the console as well: george drops its UI, each script opens on a
-  fresh screen, and the output stays put with an `exit $rc | q closes` footer
-  until you press q — Ctrl+c instead kills a long-running script and its
-  reader and returns you to the dashboard (george itself is shielded).
-  `gui:` buttons still need X, naturally.
+  so the chip always has something to bring back. **A console (tty) george
+  gets the same terminal and loses the chip**: tmux needs no X — the console
+  itself is the terminal — so `bin/george` on a bare tty builds the same
+  two-pane session (george 70% top, shell 30% bottom, Ctrl+t flips,
+  `remain-on-exit`), under its own session name so an X george on the same
+  tmux server is never touched. No ▶ TERM chip there: the pane is built
+  in, the shell loop never dies (Ctrl+D just gives a fresh prompt), and
+  the only way to kill it is a deliberate `tmux kill-pane`/kill -9 — whose
+  recovery is simply quitting and relaunching (the launcher sees the dead
+  pane and rebuilds). george quits by killing its own tmux session (clean
+  exits only; a hard kill leaves a corpse the next launch rebuilds over).
+  `term:` buttons work on the console too — the script runs in george's
+  pane region while the terminal pane survives underneath. `gui:` buttons
+  still need X.
+  If george.py is started WITHOUT the launcher (bare `python3 george.py` on
+  a console — no tmux pane exists there), the ▶ TERM chip comes back and
+  falls back to a **command line inside the dashboard**: type a shell
+  command and enter runs it on a fresh page (exit footer, q closes, Ctrl+c
+  kills the command — never george), then the line reopens like a mini
+  shell session. A trailing `&` runs the command detached instead: george
+  stays on screen and the line closes — e.g. `ttysnap&` screenshots the
+  live dashboard (ttysnap names the shot by whatever console is on screen,
+  and warns instead of saving when the framebuffer didn't match the console
+  — X owns a vt's scanout, so fbcat sees black there). A bare console has
+  one screen, so george's render and a command's output can't both be
+  visible at once — enter for readable output, `&` for side-effect
+  commands.
 - **Random Nina chip** (`[nina]` in `buttons.toml`) — one-audio rule: starts
   by freezing the radio (SIGSTOP, so it resumes where it left off), then
   streams the whole shuffled Nina Simone archive pool (208 songs + 2 whole
@@ -133,7 +151,8 @@ full find&replace engine against a scratch tree, event round-trips.
 Requires: python3-urwid (Python ≥ 3.11 for stdlib `tomllib`); on X: alacritty,
 wmctrl, xdotool, xprop (x11-utils), and `tmux` (for the built-in terminal
 panes — Ctrl+t flips focus; already present on most Debian installs). On a
-bare console tty none of those are needed — `bin/george` just runs the
-dashboard directly. The
+bare console tty only `tmux` is needed — the console itself is the terminal,
+and the launcher builds the same two-pane session there. Running
+`python3 george.py` bare (no launcher) needs nothing but urwid. The
 CH 57/59 buttons additionally need `mpv`. Nothing else — the embedded-video
 helper is long gone; channels are plain launcher buttons.

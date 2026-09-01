@@ -8,9 +8,12 @@
 # Ctrl+t (tmux bare -n binding) flips focus between the panes from either
 # side; george's ▶ TERM chip focuses (or resurrects) the terminal pane.
 #
-# On a bare console tty (no X/wayland) there is no alacritty: run the
-# dashboard directly in the current terminal - george is a pure urwid TUI
-# and works fine on a console (no tmux split, no built-in terminal pane).
+# On a bare console tty (no X/wayland) tmux needs no alacritty either -
+# the console itself is the terminal. The tty build below (bottom of this
+# file) hosts the SAME architecture: pane 0 = george, pane 1 = the
+# immortal shell, Ctrl+t flips - so george always has a built-in terminal,
+# in X and in a tty alike. A bare `python3 george.py` run (no launcher)
+# remains the minimal fallback; its TERM chip then opens the command line.
 set -eu
 
 here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -20,7 +23,10 @@ else
     GEORGE_PY="$HOME/george/george.py"
 fi
 
-if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ] && [ "$#" -gt 0 ]; then
+    # One-shot runs (e.g. --self-test) never need tmux; on a console they
+    # run bare (there is no alacritty here - the X one-shot below is not
+    # reached).
     exec python3 "$GEORGE_PY" "$@"
 fi
 
@@ -55,24 +61,33 @@ TEOF
 # otherwise tear it down and rebuild fresh so you never land in an orphan
 # shell-with-no-dashboard.
 session_healthy() {
-    tmux has-session -t "$SESSION" 2>/dev/null || return 1
-    pane_cmd=$(tmux list-panes -t "$SESSION" -F '#{pane_current_command}' \
-               -f '#{==:#{pane_index},0}' 2>/dev/null | head -n1)
-    case "$pane_cmd" in
-        python|python3|python3.*) return 0 ;;
+    s="${1:-$SESSION}"
+    tmux has-session -t "$s" 2>/dev/null || return 1
+    # pane_current_command survives a DEAD pane (remain-on-exit keeps the
+    # corpse and its last command name) - so dead must be part of the test
+    # or a crashed george would look "healthy".
+    pane_line=$(tmux list-panes -t "$s" -F '#{pane_dead} #{pane_current_command}' \
+                -f '#{==:#{pane_index},0}' 2>/dev/null | head -n1)
+    case "$pane_line" in
+        "0 python"|"0 python3"|"0 python3."*) return 0 ;;
     esac
     return 1
 }
 
-# Healthy session exists? Attach to it and keep george running.
-if session_healthy; then
-    exec alacritty --title george --class georges \
-        -e tmux -2 -f "$TMUX_CFG" attach-session -t "$SESSION"
-fi
+# ---- X path: attach a healthy session, rebuild a stale one. Guarded so a
+# console run falls through to the console build below without ever
+# touching alacritty or the X session.
+if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    # Healthy session exists? Attach to it and keep george running.
+    if session_healthy "$SESSION"; then
+        exec alacritty --title george --class georges \
+            -e tmux -2 -f "$TMUX_CFG" attach-session -t "$SESSION"
+    fi
 
-# Any leftover session here is a dead/stale one - rebuild from scratch.
-if tmux has-session -t "$SESSION" 2>/dev/null; then
-    tmux kill-session -t "$SESSION"
+    # Any leftover session here is a dead/stale one - rebuild from scratch.
+    if tmux has-session -t "$SESSION" 2>/dev/null; then
+        tmux kill-session -t "$SESSION"
+    fi
 fi
 
 ensure_tmux_cfg
@@ -87,14 +102,42 @@ ensure_tmux_cfg
 # remain-on-exit + the ▶ TERM chip cover the rest (see the tmux cfg).
 RESPAWN_SHELL='while :; do '"${SHELL:-/bin/bash}"' || sleep 1; done'
 
-# george pane runs george, then - clean quit or crash alike - tears the whole
-# session down so alacritty closes and we're back on the desktop, never left
-# staring at a fullscreen leftover terminal.
-GEORGE_RUN="cd \"$(dirname -- "$GEORGE_PY")\" && python3 \"$GEORGE_PY\"; tmux kill-session -t \"$SESSION\""
+# george owns its session teardown: george.py kills its own tmux session
+# in run()'s finally, so the pane command is a BARE python3 exec - tmux
+# runs it directly (no shell wrapper), which makes the pane's foreground
+# process genuinely python3 and the health check honest. (The old compound
+# `cd ... && python3; kill-session` wrapped in bash -c, whose foreground
+# pgrp stays bash forever - pane_current_command never said python3 and
+# the healthy-attach branch was silently dead code, found 2026-09-01.)
+# A hard kill (-9) skips the teardown; the next run sees pane_dead=1 and
+# rebuilds instead of attaching to a corpse.
+
+# ---- console (tty) mode: tmux needs no X - the console itself is the
+# terminal. Same architecture as the X path minus alacritty (auto-split:
+# george 70% + immortal shell 30%, Ctrl+t flips, remain-on-exit). Distinct
+# session name so an X george on the same tmux server is never touched;
+# the session env (-e) carries GEORGE_TMUX_SESSION so george.py's ▶ TERM
+# chip and its own teardown know which session is theirs.
+if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+    TTY_SESSION="${GEORGE_TTY_SESSION:-georgetty}"
+    if session_healthy "$TTY_SESSION"; then
+        exec tmux -2 -f "$TMUX_CFG" attach-session -t "$TTY_SESSION"
+    fi
+    if tmux has-session -t "$TTY_SESSION" 2>/dev/null; then
+        tmux kill-session -t "$TTY_SESSION"
+    fi
+    ensure_tmux_cfg
+    exec tmux -2 -f "$TMUX_CFG" new-session \
+        -e "GEORGE_TMUX_SESSION=$TTY_SESSION" \
+        -d -s "$TTY_SESSION" "python3 \"$GEORGE_PY\"" \; \
+        split-window -v -p 30 "$RESPAWN_SHELL" \; \
+        select-pane -t :.+ \; \
+        attach-session -t "$TTY_SESSION"
+fi
 
 exec alacritty --title george --class georges \
     -e tmux -2 -f "$TMUX_CFG" new-session -d -s "$SESSION" \
-        "$GEORGE_RUN" \; \
+        "python3 \"$GEORGE_PY\"" \; \
         split-window -v -p 30 "$RESPAWN_SHELL" \; \
         select-pane -t :.+ \; \
         attach-session -t "$SESSION"
