@@ -136,7 +136,9 @@ if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
 fi
 
 exec alacritty --title george --class georges \
-    -e tmux -2 -f "$TMUX_CFG" new-session -d -s "$SESSION" \
+    -e tmux -2 -f "$TMUX_CFG" new-session \
+        -e "GEORGE_TMUX_SESSION=$SESSION" \
+        -d -s "$SESSION" \
         "python3 \"$GEORGE_PY\"" \; \
         split-window -v -p 30 "$RESPAWN_SHELL" \; \
         select-pane -t :.+ \; \

@@ -652,6 +652,7 @@ PALETTE = [
     ("warn",     "yellow",       ""),
     ("crit",     "light red",    ""),
     ("dim",      "dark gray",    ""),
+    ("foot",     "brown",        ""),
     ("accent",   "light blue", ""),
     ("info",     "light blue",   ""),
     ("today",    "black",        "brown"),
@@ -953,7 +954,7 @@ class App:
             ("weight", 1, self.center_box),
             ("fixed", 34, self.right_box),
         ], dividechars=1)
-        footer = urwid.Text(("dim",
+        footer = urwid.Text(("foot",
             " q quit | esc hide/back | n nag | e event | f find&replace | g greet "
             "| m radio | r reload | → scratch · tab actions | 1-9 quick | ? help "))
         self.root = urwid.AttrMap(urwid.Frame(body, header=self.bar,
@@ -1173,7 +1174,7 @@ class App:
 
         # ---- SCRATCH: capture pad + dispatch row ------------------------
         self.pad = urwid.Edit(multiline=True)
-        self.pad_hint = urwid.Text(("dim",
+        self.pad_hint = urwid.Text(("foot",
             " arrow in: stamped + type · enter newline · tab actions "))
         self.scratch_list = urwid.ListBox(
             urwid.SimpleFocusListWalker([self.pad]))
@@ -2260,8 +2261,14 @@ class App:
         except KeyboardInterrupt:
             pass
         finally:
-            self.radio_stop(silent=True)
-            self.nina_stop(silent=True)
+            # Each step isolated: one failure must never abort the rest -
+            # the session teardown especially has to survive everything.
+            for stop in (lambda: self.radio_stop(silent=True),
+                         lambda: self.nina_stop(silent=True)):
+                try:
+                    stop()
+                except Exception:
+                    pass
             # Teardown of the tmux session is owned HERE: the launchers'
             # pane-0 command is a bare python3 exec (no shell tail), so on
             # any clean exit - q or a handled crash - george kills its own
@@ -2269,7 +2276,10 @@ class App:
             # skips this on purpose; the launcher's next run then sees
             # pane_dead=1 and rebuilds instead of attaching to a corpse.
             # A bare `python3 george.py` run (no launcher) has neither env
-            # set, so nothing is touched.
+            # set, so nothing is touched. (The X ghost bug 2026-09-01: the
+            # X build originally never passed GEORGE_TMUX_SESSION, so this
+            # block silently skipped there and the session outlived
+            # george - dead pane + immortal prompt = leftover window.)
             sess = os.environ.get("GEORGE_TMUX_SESSION")
             if sess and os.environ.get("TMUX"):
                 try:
