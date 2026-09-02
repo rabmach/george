@@ -70,15 +70,13 @@ TEOF
 session_healthy() {
     s="${1:-$SESSION}"
     tmux has-session -t "$s" 2>/dev/null || return 1
-    # pane_current_command survives a DEAD pane (remain-on-exit keeps the
-    # corpse and its last command name) - so dead must be part of the test
-    # or a crashed george would look "healthy". And a STOPPED george
-    # (SIGSTOP/SIGTSTP - Ctrl+z flung at the dashboard) passes both of
-    # those while being a frozen ghost: read the process state and reject
-    # T/t (stopped) and Z (zombie). Found live 2026-09-02: X died, the
-    # headless tmux server survived, re-login attached the fresh george
-    # window to the frozen corpse.
-    pane_line=$(tmux list-panes -t "$s" -F '#{pane_dead} #{pane_pid} #{pane_current_command}' \
+    # pane_start_command is the pane's ORIGINAL argv (tmux 3.5a+), immune
+    # to the foreground-pgrp masking that makes pane_current_command report
+    # 'bash' for shell-wrapped commands (tmux nicm pointed us here after we
+    # filed the behavior; the issue is closed as working-as-designed). The
+    # /proc state check stays: a stopped (SIGTSTP/SIGSTOP) or zombied
+    # george passes both name checks while being a frozen ghost.
+    pane_line=$(tmux list-panes -t "$s" -F '#{pane_dead} #{pane_pid} #{pane_start_command}' \
                 -f '#{==:#{pane_index},0}' 2>/dev/null | head -n1)
     case "$pane_line" in
         "0 "*) ;;
@@ -86,9 +84,9 @@ session_healthy() {
     esac
     rest=${pane_line#0 }
     pane_pid=${rest%% *}
-    pane_cmd=${rest#* }
-    case "$pane_cmd" in
-        python|python3|python3.*) ;;
+    start_cmd=${rest#* }
+    case "$start_cmd" in
+        *python*) ;;
         *) return 1 ;;
     esac
     pstate=$(cut -d' ' -f3 "/proc/$pane_pid/stat" 2>/dev/null || echo "?")
