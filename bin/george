@@ -72,13 +72,30 @@ session_healthy() {
     tmux has-session -t "$s" 2>/dev/null || return 1
     # pane_current_command survives a DEAD pane (remain-on-exit keeps the
     # corpse and its last command name) - so dead must be part of the test
-    # or a crashed george would look "healthy".
-    pane_line=$(tmux list-panes -t "$s" -F '#{pane_dead} #{pane_current_command}' \
+    # or a crashed george would look "healthy". And a STOPPED george
+    # (SIGSTOP/SIGTSTP - Ctrl+z flung at the dashboard) passes both of
+    # those while being a frozen ghost: read the process state and reject
+    # T/t (stopped) and Z (zombie). Found live 2026-09-02: X died, the
+    # headless tmux server survived, re-login attached the fresh george
+    # window to the frozen corpse.
+    pane_line=$(tmux list-panes -t "$s" -F '#{pane_dead} #{pane_pid} #{pane_current_command}' \
                 -f '#{==:#{pane_index},0}' 2>/dev/null | head -n1)
     case "$pane_line" in
-        "0 python"|"0 python3"|"0 python3."*) return 0 ;;
+        "0 "*) ;;
+        *) return 1 ;;
     esac
-    return 1
+    rest=${pane_line#0 }
+    pane_pid=${rest%% *}
+    pane_cmd=${rest#* }
+    case "$pane_cmd" in
+        python|python3|python3.*) ;;
+        *) return 1 ;;
+    esac
+    pstate=$(cut -d' ' -f3 "/proc/$pane_pid/stat" 2>/dev/null || echo "?")
+    case "$pstate" in
+        T|t|Z|z) return 1 ;;
+    esac
+    return 0
 }
 
 # ---- X path: attach a healthy session, rebuild a stale one. Guarded so a

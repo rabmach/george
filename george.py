@@ -2433,6 +2433,15 @@ class App:
         # the built-in terminal is Ctrl+t (flip to the other tmux pane) or a
         # click, and q quits george by intent.
         signal.signal(signal.SIGINT, signal.SIG_IGN)
+        # Ctrl+z (SIGTSTP) is the instinctive "background this" reflex -
+        # same key-fling class as Ctrl+c. Suspend is meaningless for a
+        # fullscreen dashboard living in a tmux pane (there is nothing to
+        # background INTO; the shell is the other pane), and a STOPPED
+        # george is worse than a dead one: it cannot repaint or read keys
+        # (a frozen ghost), the pane still looks alive to tmux, and the
+        # launcher's health check would happily re-attach to the corpse
+        # after X restarts. Ignore it like SIGINT (found live 2026-09-02).
+        signal.signal(signal.SIGTSTP, signal.SIG_IGN)
         self.log(f"george online. config: {CONFIG_PATH}", "sect")
         self.log("welcome aboard. all systems nominal.", "accent")
         self.do_greet()
