@@ -931,6 +931,10 @@ class App:
         self._radio_paused = False
         self._nina_proc = None
         self._nina_paused = False
+        self._chan_proc = None
+        self._chan_paused = False
+        self._tv_channel = None
+        self._audio_stack = []
         self.modal = None
         self.mode = "list"
         self.fr_hits = None
@@ -1229,9 +1233,29 @@ class App:
 
     def rebuild_dynamic(self):
         self.build_left()
+        self.restore_audio_labels()
         self.refresh_upcoming()
         self.render_feeds()
         self.log("config reloaded", "ok")
+
+    def restore_audio_labels(self):
+        """build_left stamps every chip with its default OFF label, but a
+        config reload (r) never touches the running audio processes - the
+        radio would keep playing under a ▶ label, and the next enter on
+        that lying chip would KILL the stream instead of starting it
+        (found live 2026-09-01). Re-derive the labels from who is actually
+        alive; frozen chips keep their ON AIR mark, as before."""
+        rlbl = self.cfg.get("radio", {}).get("label", "radio")
+        if self._radio_proc is not None and self._radio_proc.poll() is None:
+            if getattr(self, "radio_btn", None):
+                self.radio_btn._t.set_text(f" ■ RADIO {rlbl} ON AIR ")
+        if self._nina_proc is not None and self._nina_proc.poll() is None:
+            if getattr(self, "nina_btn", None):
+                nlbl = self.cfg.get("nina", {}).get("label", "NINA")
+                self.nina_btn._t.set_text(f" ■ {nlbl.upper()} ON AIR ")
+        if self._chan_proc is not None and self._chan_proc.poll() is None \
+                and self._tv_channel:
+            self._chan_chip(self._tv_channel, True)
 
     def render_billboard(self):
         try:
@@ -1328,6 +1352,118 @@ class App:
         except OSError:
             pass
 
+    def _reap_proc(self, proc, grace=3.0):
+        """terminate() is async: wait() so the corpse is reaped before any
+        caller inspects poll() - resume_next must never mistake a dying
+        process for a living one (found live 2026-09-01: the just-killed
+        channel was 'resumed' instead of the radio)."""
+        if proc is None:
+            return
+        try:
+            proc.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+                proc.wait(timeout=2)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        except OSError:
+            pass
+
+    def _chan_chip(self, name, on):
+        """Channel chip label: ▶ when off, ■ while its player is up."""
+        btn = getattr(self, "tv_btn" if name == "tv" else "funny_btn", None)
+        if not btn:
+            return
+        cfg = self.cfg.get(name, {})
+        short = (cfg.get("title", "")
+                 or ("CH 57" if name == "tv" else "CH 59")).split(" - ")[0]
+        btn._t.set_text(f" ■ {short} " if on else f" ▶ {short} ")
+
+    def _audio_freeze_others(self, who):
+        """One-audio rule: the start of `who` (radio|nina|chan) freezes
+        every other live audio process - never the activator itself. The
+        channel mpv is external but still ours to freeze - the openbox-
+        native refactor dropped its Popen handle and with it the
+        arbitration (found live 2026-09-01: radio and a LITB episode
+        playing at once). Every freeze is pushed onto a stack so a stop
+        can hand audio back to the most recently paused."""
+        for kind, proc, flag in (
+                ("radio", self._radio_proc, "_radio_paused"),
+                ("nina", self._nina_proc, "_nina_paused"),
+                ("chan", self._chan_proc, "_chan_paused")):
+            if kind == who:
+                continue
+            if proc is None or proc.poll() is not None:
+                continue
+            if getattr(self, flag):
+                continue
+            if self._freeze(proc):
+                setattr(self, flag, True)
+                self._audio_stack.append((kind, proc))
+                self.log(f"{'channel' if kind == 'chan' else kind} "
+                         f"paused for "
+                         f"{'channel' if who == 'chan' else who}", "info")
+
+    def _audio_resume_next(self):
+        """Hand audio back to the most recently frozen process ('pauses
+        and restarts the last'). Dead entries - a frozen radio killed
+        externally, a channel window closed meanwhile - are pruned, not
+        resumed. Empty stack = everything stays off."""
+        while self._audio_stack:
+            kind, proc = self._audio_stack.pop()
+            flag = {"radio": "_radio_paused", "nina": "_nina_paused",
+                    "chan": "_chan_paused"}[kind]
+            if proc is None or proc.poll() is not None:
+                setattr(self, flag, False)
+                continue
+            self._thaw(proc)
+            setattr(self, flag, False)
+            self.log(f"{'channel' if kind == 'chan' else kind} resumed",
+                     "accent")
+            return
+
+    def _chan_stop_player(self):
+        """Kill the channel mpv and clear its state. Thaw-before-
+        terminate: SIGTERM sits pending on a SIGSTOP'd process. No
+        resume here - callers decide whether audio is handed back."""
+        proc, self._chan_proc = self._chan_proc, None
+        name, self._tv_channel = self._tv_channel, None
+        self._chan_paused = False
+        if proc is not None:
+            self._thaw(proc)
+            try:
+                proc.terminate()
+            except OSError:
+                pass
+            self._reap_proc(proc)
+        if name:
+            self._chan_chip(name, False)
+
+    def _chan_tick(self):
+        """2s liveness check: the channel window being closed manually is
+        the documented way to stop it - notice, clear state, and hand
+        audio back to whatever this channel had paused."""
+        proc = self._chan_proc
+        if proc is None or proc.poll() is None:
+            return
+        self._chan_proc = None
+        name, self._tv_channel = self._tv_channel, None
+        self._chan_paused = False
+        if name:
+            self._chan_chip(name, False)
+            self.log("channel window closed", "info")
+        self._audio_resume_next()
+
+    def _chan_exit(self):
+        """Quit-path channel handling: the channel mpv is external BY
+        DESIGN and survives george ('close the mpv window to stop') - but
+        a FROZEN one would hang forever, unable to even close its own
+        window, so it gets thawed. A playing one is left playing."""
+        proc = self._chan_proc
+        if proc is not None and proc.poll() is None and self._chan_paused:
+            self._thaw(proc)
+
     def _chan_start(self, name):
         cfg = self.cfg.get(name, {})
         if name == "tv":
@@ -1347,16 +1483,31 @@ class App:
         if not pl.is_file():
             self.log(f"tv playlist missing: {pl}", "warn")
             return
+        if self._chan_proc is not None and self._chan_proc.poll() is None:
+            # a channel is already up: same chip = stop (audio hands back
+            # to the last paused), other chip = switch (no mid-switch
+            # resume blip - the new spawn freezes everyone anyway). The
+            # old window dies either way.
+            same = (self._tv_channel == name)
+            self._chan_stop_player()
+            if same:
+                self._audio_resume_next()
+                return
         try:
             args = ["mpv", "--loop-playlist", "--shuffle", "--force-window",
                     "--keepaspect=yes", f"--playlist={pl}"]
             g = self._chan_geometry()
             if g:
                 args += [f"--geometry={g}"]
-            subprocess.Popen(args, stdin=subprocess.DEVNULL,
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL,
-                             start_new_session=True)
+            self._audio_freeze_others("chan")
+            self._chan_proc = subprocess.Popen(
+                args, stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True)
+            self._tv_channel = name
+            self._chan_paused = False
+            self._chan_chip(name, True)
             self.log(f"{disp} opened in its own window", "accent")
         except OSError as e:
             self.log(f"tv failed: {e}", "crit")
@@ -1382,10 +1533,7 @@ class App:
         if not url:
             self.log("radio: no [radio] url configured", "warn")
             return
-        if self._nina_proc and self._nina_proc.poll() is None:
-            if self._freeze(self._nina_proc):
-                self._nina_paused = True
-                self.log("nina paused for radio", "info")
+        self._audio_freeze_others("radio")
         try:
             tvlog = Path("~/.local/state").expanduser() / "george-tv.log"
             lf = tvlog.open("a")
@@ -1412,18 +1560,14 @@ class App:
                 proc.terminate()
             except OSError:
                 pass
+            self._reap_proc(proc)
         if not silent:
             self.log(why, "ok")
         rcfg = self.cfg.get("radio", {})
         lbl = rcfg.get("label", "radio")
         if getattr(self, "radio_btn", None):
             self.radio_btn._t.set_text(f" ▶ RADIO {lbl} ")
-        if self._nina_paused:
-            np_, self._nina_paused = self._nina_proc, False
-            if np_ is not None and np_.poll() is None:
-                self._thaw(np_)
-                if not silent:
-                    self.log("nina resumed", "accent")
+        self._audio_resume_next()
 
     def nina_start(self):
         ncfg = self.cfg.get("nina", {})
@@ -1460,10 +1604,7 @@ class App:
             title, url = parts[0], parts[1]
         else:
             title = ncfg.get("label", "NINA")
-        if self._radio_proc and self._radio_proc.poll() is None:
-            if self._freeze(self._radio_proc):
-                self._radio_paused = True
-                self.log("radio paused for nina", "info")
+        self._audio_freeze_others("nina")
         try:
             tvlog = Path("~/.local/state").expanduser() / "george-tv.log"
             lf = tvlog.open("a")
@@ -1497,28 +1638,40 @@ class App:
                 proc.terminate()
             except OSError:
                 pass
+            self._reap_proc(proc)
         if not silent:
             self.log(why, "ok")
             ncfg = self.cfg.get("nina", {})
             nlbl = ncfg.get("label", "NINA")
             if getattr(self, "nina_btn", None):
                 self.nina_btn._t.set_text(f" ▶ {nlbl.upper()} ")
-        if self._radio_paused:
-            rp, self._radio_paused = self._radio_proc, False
-            if rp is not None and rp.poll() is None:
-                self._thaw(rp)
-                if not silent:
-                    self.log("radio resumed", "accent")
+        self._audio_resume_next()
 
     def do_nina(self):
         if self._nina_proc and self._nina_proc.poll() is None:
-            self.nina_stop()
+            if self._nina_paused:
+                # frozen: another chip owns the audio - entering nina
+                # makes nina the active one again (freeze the rest first)
+                self._audio_freeze_others("nina")
+                self._thaw(self._nina_proc)
+                self._nina_paused = False
+                self.log("nina resumed", "accent")
+            else:
+                self.nina_stop()
         else:
             self.nina_start()
 
     def do_radio(self):
         if self._radio_proc and self._radio_proc.poll() is None:
-            self.radio_stop()
+            if self._radio_paused:
+                # frozen: another chip owns the audio - entering radio
+                # makes radio the active one again (freeze the rest first)
+                self._audio_freeze_others("radio")
+                self._thaw(self._radio_proc)
+                self._radio_paused = False
+                self.log("radio resumed", "accent")
+            else:
+                self.radio_stop()
         else:
             self.radio_start()
 
@@ -1823,6 +1976,7 @@ class App:
         return pct, rx, tx, cpcts
 
     def tick_stats(self, loop=None, data=None):
+        self._chan_tick()
         if not getattr(self, "_placed", False):
             self.place_self()
         try:
@@ -2264,7 +2418,8 @@ class App:
             # Each step isolated: one failure must never abort the rest -
             # the session teardown especially has to survive everything.
             for stop in (lambda: self.radio_stop(silent=True),
-                         lambda: self.nina_stop(silent=True)):
+                         lambda: self.nina_stop(silent=True),
+                         lambda: self._chan_exit()):
                 try:
                     stop()
                 except Exception:
