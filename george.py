@@ -2440,8 +2440,24 @@ class App:
         # george is worse than a dead one: it cannot repaint or read keys
         # (a frozen ghost), the pane still looks alive to tmux, and the
         # launcher's health check would happily re-attach to the corpse
-        # after X restarts. Ignore it like SIGINT (found live 2026-09-02).
+        # after X restarts (found live 2026-09-02).
         signal.signal(signal.SIGTSTP, signal.SIG_IGN)
+        # BUT urwid overrides that: at screen start it installs its own
+        # SIGTSTP "suspend" handler (_posix_raw_display._sigtstp_handler),
+        # which stops the screen, restores handlers, re-raises SIGTSTP and
+        # waits for a SIGCONT to come back. In a tmux pane NOTHING ever
+        # sends SIGCONT - a suspend is a one-way door: screen stopped
+        # forever, loop alive on timers, input dead. The pre-shield corpse
+        # and the post-shield live-but-deaf ghost were both this handler.
+        # The real fix is neutering urwid's handler itself, so ^z becomes
+        # an inert byte at the line discipline. (Found by reading urwid's
+        # source after the harness showed SIGINT/SIGQUIT shields worked
+        # but SIGTSTP still broke input.)
+        self.loop.screen._sigtstp_handler = lambda *a, **k: None
+        # Ctrl+\ (SIGQUIT) is the third reflex of the family: default
+        # action is die-with-core-dump. Same rule - the dashboard does not
+        # die by terminal accident, only by q on purpose.
+        signal.signal(signal.SIGQUIT, signal.SIG_IGN)
         self.log(f"george online. config: {CONFIG_PATH}", "sect")
         self.log("welcome aboard. all systems nominal.", "accent")
         self.do_greet()
