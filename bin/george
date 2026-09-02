@@ -52,6 +52,13 @@ bind -n C-t select-pane -t :.+
 set -g remain-on-exit on
 set -g status off
 set -g mouse on
+# The dashboard never claims mouse (urwid handle_mouse=False, keyboard-
+# first) - without this, the wheel falls through to tmux and drops the
+# dashboard into copy-mode scrollback (position icon top-right, borders
+# restyle). Wheel over george (bare python3 exec) does nothing; the
+# terminal pane keeps normal scrollback.
+bind -n WheelUpPane if-shell -F '#{==:#{pane_current_command},python3}' '' 'copy-mode -e'
+bind -n WheelDownPane if-shell -F '#{==:#{pane_current_command},python3}' '' 'copy-mode -e'
 TEOF
 }
 
