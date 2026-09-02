@@ -952,6 +952,8 @@ class App:
             urwid.LineBox(urwid.ListBox(self.left_walker), title=f" {ico('rocket')} LAUNCH "),
             "", {"focus": "frame_f"})
         self.center_box = self.build_center()
+        self._pad_saved = ""
+        self._pad_load()
         self.right_box = self.build_right()
         body = urwid.Columns([
             ("fixed", 26, self.left_box),
@@ -1975,8 +1977,39 @@ class App:
             self._hist_tx.append(min(tx, 1 << 22))
         return pct, rx, tx, cpcts
 
+    def _pad_file(self):
+        return DATA_DIR / "scratch.txt"
+
+    def _pad_load(self):
+        """Restore the scratch pad from the last session. A user who
+        pulled a d'oh! and quit - or whose machine fell asleep - finds
+        their buffer right where they left it at the next login."""
+        f = self._pad_file()
+        try:
+            txt = f.read_text()
+        except OSError:
+            return
+        if txt.strip():
+            self.pad.set_edit_text(txt)
+            self.pad.set_edit_pos(len(txt))
+        self._pad_saved = txt
+
+    def _pad_tick(self):
+        """Save the scratch pad when it changed (2s check via tick_stats,
+        plus once on the quit path). An accidental q - or any d'oh! -
+        must never vaporize the buffer."""
+        txt = self.pad.edit_text
+        if txt == self._pad_saved:
+            return
+        try:
+            self._pad_file().write_text(txt)
+            self._pad_saved = txt
+        except OSError:
+            pass
+
     def tick_stats(self, loop=None, data=None):
         self._chan_tick()
+        self._pad_tick()
         if not getattr(self, "_placed", False):
             self.place_self()
         try:
@@ -2419,7 +2452,8 @@ class App:
             # the session teardown especially has to survive everything.
             for stop in (lambda: self.radio_stop(silent=True),
                          lambda: self.nina_stop(silent=True),
-                         lambda: self._chan_exit()):
+                         lambda: self._chan_exit(),
+                         lambda: self._pad_tick()):
                 try:
                     stop()
                 except Exception:

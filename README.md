@@ -22,7 +22,9 @@ george in a tty:
   mouse input is disabled, arrows + enter drive everything.
 - **SHOWCASE + THIS BOX** lower center — left block is a wicked handy scratch
   space that you can save as a note or send off as an email, and, you may keep
-  doing it (`[showcase]` lines in `buttons.toml`); right block is a
+  doing it (`[showcase]` lines in `buttons.toml`) — and the buffer **persists**:
+  it is saved as you type and restored at the next start, so a stray `q` (or a
+  machine that fell asleep on you) never costs your notes; right block is a
   fastfetch-style **THIS BOX** readout (PC, OS + kernel + uptime, WM + GTK
   theme + package count, init, date, load, processes, memory, partitions) —
   all built from george's own `/proc` + `/sys` + `/etc` reads, **zero
@@ -38,9 +40,12 @@ george in a tty:
   alt-tab back to george whenever, close the mpv window to stop. No docked or
   embedded video, no focus tricks, nothing for george to babysit. Listen, I
   know this is weird, but, random Leave it to Beaver episodes is hilarious so
-  it's in and it's staying. The george window itself starts undecorated if
-  you give openbox a rule for it (`<application class="georges"><decor>no</decor>
-  </application>` in `~/.config/openbox/rc.xml`).
+  it's in and it's staying. The george window itself starts undecorated and
+  maximized if you give openbox a rule for it (`<application class="georges">
+  <decor>no</decor><maximized>true</maximized></application>` in
+  `~/.config/openbox/rc.xml`) — the maximized part also covers a second
+  launcher run attaching to the running session (an attached window has no
+  george process inside it to place itself).
 - **Built-in terminal** — one alacritty window is split by tmux into two
   panes: george on top, a real shell below (`bin/george` does this; Ctrl+t,
   wired as a tmux no-prefix binding, flips focus between them, or click a
