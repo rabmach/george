@@ -59,6 +59,11 @@ set -g mouse on
 # terminal pane keeps normal scrollback.
 bind -n WheelUpPane if-shell -F '#{==:#{pane_current_command},python3}' '' 'copy-mode -e'
 bind -n WheelDownPane if-shell -F '#{==:#{pane_current_command},python3}' '' 'copy-mode -e'
+# 2026-09-03: superseding pair - explicit mouse-pane targeting (the pair
+# above evaluated against the ACTIVE pane, so wheeling one pane could
+# no-op or copy-mode another). Later binding wins.
+bind -n WheelUpPane   if-shell -t '{mouse_pane}' -F '#{==:#{pane_current_command},python3}' '' 'copy-mode -e -t {mouse_pane}'
+bind -n WheelDownPane if-shell -t '{mouse_pane}' -F '#{==:#{pane_current_command},python3}' '' 'copy-mode -e -t {mouse_pane}'
 TEOF
 }
 
