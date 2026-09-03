@@ -31,6 +31,7 @@ items = [
   { label = "browser",      cmd = "xdg-open about:blank", term = false },
   { label = "calculator",   cmd = "xcalc",    term = false },
   { label = "terminal",     cmd = "${TERM:-x-terminal-emulator}", term = true },
+  # { label = "lockd",       cmd = "lockd",   term = false },  # github.com/rabmach/lockd
 ]
 
 # Navigate onto a SYSTEM pane below and press enter to open a matching tool:
