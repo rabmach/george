@@ -1,5 +1,7 @@
 # george
 
+*Built in the open: human-directed, AI-assisted ([opencode](https://github.com/anomalyco/opencode)), human-verified.*
+
 TUI sort of a "control center" for your Debian desktop because why the hell not. One python process (stdlib + urwid only,
 ~30 MB RAM, ~0% idle CPU) that opens fullscreen at X login and gives you:
 
