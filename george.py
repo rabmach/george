@@ -880,6 +880,8 @@ HELP_TEXT = [
     ("log", " CH 57/59   chips open their own mpv window       ?   this help\n"),
     ("sect", " BUILT-IN TERMINAL (tmux pane below)\n"),
     ("log", " Ctrl+t      flip focus to the terminal pane / back to george\n"),
+    ("log", " t           pop out a terminal: its OWN window, plain shell -\n"),
+    ("log", "             native wheel scrollback, no modes, survives george\n"),
     ("log", " click       click the terminal pane to enter it; click george to\n"),
     ("log", "             return. In the terminal, Ctrl+D just gives a fresh\n"),
     ("log", "             prompt - it can never close george. Ctrl+t is the\n"),
@@ -962,7 +964,7 @@ class App:
         ], dividechars=1)
         footer = urwid.Text(("foot",
             " q quit | esc hide/back | n nag | e event | f find&replace | g greet "
-            "| m radio | r reload | → scratch · tab actions | 1-9 quick | ? help "))
+            "| m radio | t term+ | r reload | → scratch · tab actions | 1-9 quick | ? help "))
         self.root = urwid.AttrMap(urwid.Frame(body, header=self.bar,
                                               footer=footer), "")
         self.loop = urwid.MainLoop(self.root, PALETTE,
@@ -1123,6 +1125,11 @@ class App:
         if self._term_chip_needed():
             self.term_btn = Click(" ▶ TERM ", self.do_term)
             items.append(self.term_btn)
+            # a pop-out terminal: its OWN window, plain shell, native
+            # scrollback - no tmux, no copy-mode dance (the embedded pane
+            # can only scroll by mode-switching; found live 2026-09-03).
+            self.popout_btn = Click(" ⧉ TERM+ ", self.do_popout)
+            items.append(self.popout_btn)
         else:
             # tmux-hosted console george: the terminal pane is built-in and
             # the shell loop is immortal, so nothing needs rescuing and
@@ -1682,6 +1689,23 @@ class App:
 
     def do_funny(self):
         self._chan_start("funny")
+
+    def do_popout(self):
+        """A standalone terminal in its OWN window - plain shell, no tmux:
+        native wheel scrollback, native copy/paste, no copy-mode dance.
+        Detached from george (survives the dashboard); X-only."""
+        if not os.environ.get("DISPLAY"):
+            self.log("pop-out needs X", "warn")
+            return
+        try:
+            subprocess.Popen(
+                ["alacritty", "--title", "george:popout", "--class", "popout",
+                 "-e", os.environ.get("SHELL", "/bin/bash")],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, start_new_session=True)
+            self.log("terminal popped out (own window, native scroll)", "accent")
+        except OSError as e:
+            self.log(f"pop-out failed: {e}", "crit")
 
     def do_term(self):
         if not os.environ.get("TMUX"):
@@ -2337,6 +2361,8 @@ class App:
                 self.do_greet()
             elif k == "m":
                 self.do_radio()
+            elif k == "t":
+                self.do_popout()
             elif k == "right" and self.mode == "list":
                 self._enter_pad()
             elif k == "tab" and self.mode == "pad":
