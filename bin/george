@@ -81,8 +81,14 @@ session_healthy() {
     # filed the behavior; the issue is closed as working-as-designed). The
     # /proc state check stays: a stopped (SIGTSTP/SIGSTOP) or zombied
     # george passes both name checks while being a frozen ghost.
+    # every read failure-tolerant: the launcher runs set -e inside a
+    # BACKGROUND subshell at login, so one tmux hiccup (stale socket,
+    # server dying between has-session and list-panes) used to kill the
+    # whole launch SILENTLY - the reported "rare failure on successive
+    # logins" (2026-09-05)
     pane_line=$(tmux list-panes -t "$s" -F '#{pane_dead} #{pane_pid} #{pane_start_command}' \
-                -f '#{==:#{pane_index},0}' 2>/dev/null | head -n1)
+                -f '#{==:#{pane_index},0}' 2>/dev/null | head -n1 || true)
+    [ -n "$pane_line" ] || return 1
     case "$pane_line" in
         "0 "*) ;;
         *) return 1 ;;
@@ -96,7 +102,7 @@ session_healthy() {
     esac
     pstate=$(cut -d' ' -f3 "/proc/$pane_pid/stat" 2>/dev/null || echo "?")
     case "$pstate" in
-        T|t|Z|z) return 1 ;;
+        T|t|Z|z|?) return 1 ;;
     esac
     return 0
 }
@@ -105,15 +111,23 @@ session_healthy() {
 # console run falls through to the console build below without ever
 # touching alacritty or the X session.
 if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
-    # Healthy session exists? Attach to it and keep george running.
+    # Healthy session exists? Attach to it and keep george running
+    # (detached when launched from an interactive terminal).
     if session_healthy "$SESSION"; then
+        if [ -t 0 ] && command -v alacritty >/dev/null 2>&1; then
+            setsid -f alacritty --title george --class georges \
+                -e tmux -2 -f "$TMUX_CFG" attach-session -t "$SESSION" \
+                </dev/null >/dev/null 2>&1
+            echo "george: attached (detached) - window opening, prompt is yours"
+            exit 0
+        fi
         exec alacritty --title george --class georges \
             -e tmux -2 -f "$TMUX_CFG" attach-session -t "$SESSION"
     fi
 
     # Any leftover session here is a dead/stale one - rebuild from scratch.
     if tmux has-session -t "$SESSION" 2>/dev/null; then
-        tmux kill-session -t "$SESSION"
+        tmux kill-session -t "$SESSION" 2>/dev/null || true
     fi
 fi
 
@@ -151,22 +165,69 @@ if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
         exec tmux -2 -f "$TMUX_CFG" attach-session -t "$TTY_SESSION"
     fi
     if tmux has-session -t "$TTY_SESSION" 2>/dev/null; then
-        tmux kill-session -t "$TTY_SESSION"
+        tmux kill-session -t "$TTY_SESSION" 2>/dev/null || true
     fi
     ensure_tmux_cfg
-    exec tmux -2 -f "$TMUX_CFG" new-session \
+    if tmux -2 -f "$TMUX_CFG" new-session \
         -e "GEORGE_TMUX_SESSION=$TTY_SESSION" \
         -d -s "$TTY_SESSION" "python3 \"$GEORGE_PY\"" \; \
         split-window -v -p 30 "$RESPAWN_SHELL" \; \
         select-pane -t :.+ \; \
-        attach-session -t "$TTY_SESSION"
+        attach-session -t "$TTY_SESSION"; then
+        exit 0
+    fi
+    # tmux build failed (rescue console, broken server) - the bare
+    # dashboard still runs; a console shows stderr, so the reason is
+    # visible there
+    exec python3 "$GEORGE_PY"
 fi
 
-exec alacritty --title george --class georges \
-    -e tmux -2 -f "$TMUX_CFG" new-session \
-        -e "GEORGE_TMUX_SESSION=$SESSION" \
-        -d -s "$SESSION" \
+# ---- X build. Two steps, and the ORDER is the fix (2026-09-05): build
+# the tmux session SERVER-SIDE first (synchronous - its exit code is the
+# real verdict on a stale server / broken socket), and only then open the
+# window, detached, attaching to the ready session. The old shape ran the
+# build inside alacritty's -e, foreground: the launcher blocked on the
+# window's whole life (terminal held - the opposite of detached) and a
+# kill of the launching tree orphaned a headless george (tmux server +
+# george.py outlive alacritty). Launched FROM an interactive terminal
+# ([ -t 0 ]): setsid -f = new session, fds redirected, prompt handed
+# straight back. No-tty launches (login hook, menu) attach foreground -
+# there is no terminal to free there. A failed build DEGRADES to a plain
+# george dashboard (no terminal pane) instead of vanishing, and says so
+# through notify-send.
+build_session() {
+    tmux -2 -f "$TMUX_CFG" new-session \
+        -d -e "GEORGE_TMUX_SESSION=$SESSION" \
+        -s "$SESSION" \
         "python3 \"$GEORGE_PY\"" \; \
         split-window -v -p 30 "$RESPAWN_SHELL" \; \
-        select-pane -t :.+ \; \
-        attach-session -t "$SESSION"
+        select-pane -t :.+
+}
+
+say_fallback() {
+    command -v notify-send >/dev/null 2>&1 \
+        && notify-send --hint=int:transient:1 -t 6000 "george" \
+            "tmux failed - plain dashboard (no terminal pane). Reason: $1" \
+        2>/dev/null || true
+}
+
+if ! build_session; then
+    say_fallback "tmux build failed"
+    if [ -t 0 ] && command -v alacritty >/dev/null 2>&1; then
+        setsid -f alacritty --title george --class georges \
+            -e python3 "$GEORGE_PY" </dev/null >/dev/null 2>&1
+        echo "george: fallback dashboard spawned detached"
+        exit 0
+    fi
+    exec alacritty --title george --class georges -e python3 "$GEORGE_PY"
+fi
+
+if [ -t 0 ] && command -v alacritty >/dev/null 2>&1; then
+    setsid -f alacritty --title george --class georges \
+        -e tmux -2 -f "$TMUX_CFG" attach-session -t "$SESSION" \
+        </dev/null >/dev/null 2>&1
+    echo "george: spawned detached - window opening, prompt is yours"
+    exit 0
+fi
+exec alacritty --title george --class georges \
+    -e tmux -2 -f "$TMUX_CFG" attach-session -t "$SESSION"

@@ -113,6 +113,13 @@ george in a tty:
     # or, once installed on your PATH:
     george
 
+Run it from an interactive terminal and the prompt comes straight back —
+george spawns detached (its own session; closing the launching terminal
+never touches it). Login-hook and menu launches behave as before. If the
+tmux build ever fails (stale server, broken socket), the launcher degrades
+to a plain george dashboard instead of vanishing, and says so via
+notify-send.
+
 Keys: `1-9` quick-launch, `n` nag, `e` event, `f` find&replace, `g` greet,
 `r` reload config, `?` help, `esc` hide (alt-tab to raise), `q` quit. CH
 57/59 launch mpv in their own window (close it / alt-tab back); the built-in
