@@ -1546,6 +1546,7 @@ class App:
         self._audio_freeze_others("radio")
         try:
             tvlog = Path("~/.local/state").expanduser() / "george-tv.log"
+            tvlog.parent.mkdir(parents=True, exist_ok=True)
             lf = tvlog.open("a")
             self._radio_proc = subprocess.Popen(
                 ["mpv", "--no-video", "--force-window=no",
@@ -1617,6 +1618,7 @@ class App:
         self._audio_freeze_others("nina")
         try:
             tvlog = Path("~/.local/state").expanduser() / "george-tv.log"
+            tvlog.parent.mkdir(parents=True, exist_ok=True)
             lf = tvlog.open("a")
             args = ["mpv", "--no-video", "--force-window=no",
                     "--audio-display=no", "--really-quiet",
