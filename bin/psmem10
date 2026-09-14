@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Top 10 processes by memory usage.
+exec ps auxf | sort -nr -k 4 | head -10

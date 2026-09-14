@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Play the Music directory shuffled with mpv (background).
+mpv --shuffle ~/Music &

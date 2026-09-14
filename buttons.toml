@@ -1,49 +1,85 @@
-# george control center — portable demo config.
-# Buttons launch whatever is on your $PATH. This file ships with george and
-# lists common tools most systems already have, so it works out of the box.
-# Throw away anything you don't use; add whatever you like. Press r inside
-# george to reload after editing.
-#
-# To keep your PERSONAL button set out of the public repo, copy this file
-# to ~/.config/george/buttons.toml, edit that copy, and set
-#   export GEORGE_CONFIG="$HOME/.config/george/buttons.toml"
-# (e.g. in your WM/X session startup) so george reads yours instead.
-#
+# george control center config — ships with george, works out of the box.
+# Buttons launch whatever is on your $PATH (george's launcher puts the
+# vendored bin/ first); everything below is a common Debian tool or a
+# script that ships in this repo.
 # term = true  -> command runs inside a new terminal window
 # term = false -> command runs detached as-is (GUI apps)
 # hold: default true for term buttons — window stays open after the command
 # exits, showing its exit code, until you press enter. Set hold = false on a
 # per-item basis to let the window close immediately instead.
+#
+# To keep a PERSONAL button set, copy this file to
+# ~/.config/george/buttons.toml, edit that copy (throw away anything you
+# don't use, add whatever you like), and set
+#   export GEORGE_CONFIG="$HOME/.config/george/buttons.toml"
+# Press r inside george to reload after editing.
+
+[[section]]
+title = "MUSIC"
+items = [
+  { label = "audacious",   cmd = "audacious" },
+  { label = "ssr",         cmd = "ssr" },
+  { label = "tunes (shuffle)", cmd = "tunes" },
+  { label = "stopwatch",   cmd = "stopwatch", term = true },
+]
 
 [[section]]
 title = "SYSTEM"
 items = [
-  { label = "htop",    cmd = "htop",       term = true },
-  { label = "neofetch", cmd = "neofetch",   term = true },
-  { label = "df -h",   cmd = "df -h",      term = true },
-  { label = "free -h", cmd = "free -h",    term = true },
+  { label = "guts (inxi)",      cmd = "guts",          term = true },
+  { label = "healthcheck",      cmd = "healthcheck.sh", term = true },
+  { label = "win+h",		cmd = "x-terminal-emulator -e htop" },
+  { label = "myip",             cmd = "myip",          term = true },
+  { label = "batt",             cmd = "batt -w",       term = true },
+  { label = "listening",	cmd = "listening",     term = true },
+  { label = "ports",            cmd = "ports",         term = true },
+  { label = "network",          cmd = "sudo jnettop",  term = true },
+  { label = "router",           cmd = "router",        term = true },
+  { label = "psmem",            cmd = "psmem",         term = true },
+]
+
+[[section]]
+title = "SCRIPTS"
+items = [
+  { label = "weather",    cmd = "weather",  term = true },
+  { label = "sync",	cmd = "sync",  term = true },
+  { label = "forecast",   cmd = "forecast.sh", term = true },
+  { label = "remind",     cmd = "remind",   term = true },
+  { label = "nap",        cmd = "nap",      term = true },
+  { label = "word",       cmd = "swriter",  term = false },
+  { label = "lotto",      cmd = "lotto",    term = true },
+  { label = "openbox menu.xml", cmd = "menu" },
+  { label = "find & replace",   cmd = "__fr__" },
+  { label = "logout",     cmd = "obsession-logout" },
+  { label = "random beaver", cmd = "rltb.sh", term = false },
 ]
 
 [[section]]
 title = "APPS"
 items = [
-  { label = "file manager", cmd = "xdg-open .", term = false },
-  { label = "browser",      cmd = "xdg-open about:blank", term = false },
-  { label = "calculator",   cmd = "xcalc",    term = false },
-  { label = "terminal",     cmd = "${TERM:-x-terminal-emulator}", term = true },
-  # { label = "lockd",       cmd = "lockd",   term = false },  # github.com/rabmach/lockd
+  { label = "passwords",  cmd = "keepassxc" },
+  #{ label = "lockd",      cmd = "lockd" },
+  { label = "firefox",    cmd = "firefox -no-remote" },
+  { label = "mail",       cmd = "claws-mail" },
+  { label = "thunar",     cmd = "thunar" },
 ]
 
-# Navigate onto a SYSTEM pane below and press enter to open a matching tool:
 [click]
-cpu  = { cmd = "htop", term = true }
-mem  = { cmd = "free -h", term = true }
-net  = { cmd = "iftop", term = true }
-io   = { cmd = "iotop", term = true }
-disk = { cmd = "ncdu /", term = true }
+cpu  = { cmd = "btop", term = true }
+mem  = { cmd = "psmem", term = true }
+net  = { cmd = "sudo iftop", term = true }
+io   = { cmd = "sudo iotop", term = true }
+disk = { cmd = "ncdu /home", term = true }
 
-# FEEDS & LINKS -- up to 12 slots; kind = "rss" fetches titles and each
-# title opens its article; kind = "link" is one clickable row.
+# FEEDS & LINKS -- fill these in whenever you like. Up to 12 slots render;
+# kind = "rss"  -> titles are fetched and each title opens its article
+# kind = "link" -> one clickable row opening url directly
+# Empty slots show as placeholders until filled.
+
+[[link]]
+name = "REDDIT SCIENCE"
+url = "https://www.reddit.com/r/science/.rss"
+kind = "rss"
 
 [[link]]
 name = "HACKER NEWS"
@@ -55,35 +91,40 @@ name = "DEBIAN NEWS"
 url = "https://www.debian.org/News/news"
 kind = "link"
 
+[[link]]
+name = "XKCD"
+url = "https://xkcd.com/rss.xml"
+kind = "rss"
+
 # SHOWCASE -- the lower-left center block. Pure display; edit at will.
+# First line renders as the header, the rest as dim body lines.
 
 [showcase]
 lines = [
-  "Handy scratch to notes or email",
   "this block is yours to fill.",
   "edit [showcase] lines in buttons.toml",
 ]
 
-# TV -- CH 57 / CH 59 are plain LAUNCHER buttons in the left column. Each
-# opens mpv in its OWN separate window with its playlist (shuffled, looping);
-# close the mpv window (or alt-tab away) when done. george itself stays up.
+# TV -- a channel chip opens its own borderless-ish mpv window with the
+# playlist (shuffled, looping); close the mpv window when done; george
+# stays up. Needs X + mpv.
 #   enable   = true/false  (shows the chip)
 #   title    = label on the chip (and the CHANNELS panel)
-#   playlist = m3u file of episode/stream URLs
-#              relative to the george repo, or an absolute/`~` path.
-#   Needs X.
-#   Regenerate the lineup with:  python3 tools/mktv.py <out.m3u>
+#   playlist = m3u file of episode/stream URLs (relative to the george
+#              repo when shipped)
+# CH 57 is public-domain Leave It To Beaver from archive.org
+# (regenerate with tools/mktv.py; a random one plays via bin/rltb.sh too).
 
 [tv]
 enable = true
-title = "CH 57"
+title = "CH 57 - LEAVE IT TO BEAVER"
 playlist = "tv/beaver.m3u"
 
 # CH 59 -- silent comedy / cartoons / oddball docs.
 #   Regenerate with:  python3 tools/update-funny.py
 [funny]
 enable = true
-title = "CH 59"
+title = "CH 59 - Random Old Funny"
 playlist = "tv/funny.m3u"
 
 # Radio chip (bottom of the LAUNCH column; `m` key toggles):
@@ -91,10 +132,11 @@ playlist = "tv/funny.m3u"
 url = "https://wicn-ice.streamguys1.com/live-mp3"
 label = "WICN"
 
-# Random Nina chip (bottom of the LAUNCH column): plays a random Nina Simone
-# track from archive.org. cmd = a script that prints "TITLE<TAB>URL" for
-# --url-only (any picker works). One-audio: starting nina freezes radio,
+# NINA -- random Nina Simone from archive.org. cmd = the picker (shipped
+# as bin/nina.sh, pool data in bin/nina.tsv; refresh with
+# tools/update-nina.py); one-audio: starting nina freezes radio,
 # stopping it resumes it.
+
 [nina]
 cmd = "nina.sh"
 label = "NINA"

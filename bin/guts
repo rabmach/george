@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Full hardware/system info via inxi (needs sudo).
+exec sudo inxi -Fx -c24

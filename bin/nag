@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# 2026 machiner opencode
+MESSAGE="Hey, man, it's time"
+
+to_seconds() {
+  local num="$1"
+  local unit="$2"
+  case "$unit" in
+    second|seconds) echo "$num" ;;
+    minute|minutes|"") echo $((num * 60)) ;;
+    hour|hours) echo $((num * 3600)) ;;
+    day|days) echo $((num * 86400)) ;;
+    *) echo $((num * 60)) ;;
+  esac
+}
+
+if [ $# -eq 0 ]; then
+  echo "Usage: nag [me] in <N> [minutes|hours|seconds]"
+  echo "       nag tomorrow"
+  exit 1
+fi
+
+if [ "${1:-}" = "me" ]; then
+  shift
+fi
+
+ORIG_ARGS=("$@")
+
+if [ "${ORIG_ARGS[0]}" = "tomorrow" ]; then
+  SECONDS=86400
+  NUM=1
+  UNIT=day
+else
+  IN_IDX=-1
+  for i in "${!ORIG_ARGS[@]}"; do
+    if [ "${ORIG_ARGS[$i]}" = "in" ]; then
+      IN_IDX=$i
+      break
+    fi
+  done
+
+  if [ $IN_IDX -ge 0 ]; then
+    NUM="${ORIG_ARGS[$((IN_IDX + 1))]}"
+    if [ "$NUM" = "an" ]; then
+      NUM=1
+    fi
+    UNIT="${ORIG_ARGS[$((IN_IDX + 2))]:-minutes}"
+  elif [ ${#ORIG_ARGS[@]} -ge 1 ]; then
+    NUM="${ORIG_ARGS[0]}"
+    UNIT="${ORIG_ARGS[1]:-minutes}"
+  else
+    echo "Usage: nag [me] in <N> [minutes|hours|seconds]"
+    exit 1
+  fi
+
+  SECONDS=$(to_seconds "$NUM" "$UNIT")
+fi
+
+echo "nag: will speak in $NUM $UNIT"
+(
+  sleep "$SECONDS"
+  espeak -v mb-en1 "$MESSAGE"
+) & disown $!

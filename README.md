@@ -12,8 +12,9 @@ george in a tty:
 
 - **LAUNCH** column — config-driven buttons that launch whatever is on your
   `$PATH` (your own scripts, apps, system tools). Configure in `buttons.toml`
-  (a portable demo ships; copy it and point `GEORGE_CONFIG` at your own copy
-  to keep your personal button set out of the repo). Press `r` to reload.
+  (a working config ships along with the whole `bin/` script library it uses)
+  — see **What ships** below — and point `GEORGE_CONFIG` at your own copy to
+  keep your personal button set out of the repo. Press `r` to reload.
 - **SYSTEM & STATUS** center — live CPU / MEM / LOAD / NET / DISK / BATT /
   TEMP panes read straight from `/proc` + sysfs every 2 s (left of the
   block) beside the scrolling status log (right). Arrow onto a pane and
@@ -104,6 +105,32 @@ george in a tty:
 - **find & replace** (`f`) — literal or regex replacement across a directory
   tree with dry-run preview, hit counts, glob filter, binary/git skip, and
   `*.bak-fr` originals kept.
+
+## What ships
+
+george is all-inclusive — a clone is the whole install:
+
+    git clone https://github.com/rabmach/george ~/george
+    ~/george/bin/george
+
+- `buttons.toml` — the shipped config (system panes, weather, find & replace,
+  lockd, CH 57/59, radio, NINA) — every command either resolves to a vendored
+  `bin/` script or a stock Debian tool (the launcher puts the vendored `bin/`
+  first on `PATH`, so nothing else to install beyond the usual apt list).
+- `george.py` — the dashboard (the only non-shell code).
+- `bin/` — the button scripts themselves: `batt`, `forecast.sh`, `greet.sh`,
+  `guts`, `healthcheck.sh`, `listening`, `lotto`, `menu`, `myip`, `nag`,
+  `nap`, `nina.sh`, `ports`, `psmem`, `psmem10`, `remind`, `rltb.sh`,
+  `router`, `ssr`, `stopwatch`, `tunes`, `weather`, `weather.sh`.
+- `tools/` — playlist/pool refreshers: `mktv.py`, `update-funny.py`,
+  `update-nina.py` (optional: only if you want to rebuild the NINA pool from
+  the archive.org source rather than run the `nina.tsv` that ships).
+- `tv/` — the CH 57 (Leave It To Beaver) + CH 59 lineups and the NINA song
+  pool (`bin/nina.tsv`; 208 songs + 2 whole albums, all public archive.org
+  uploads).
+- `bin/rltb.sh` in the SCRIPTS row ("random beaver") — the standalone
+  random-episode picker from [rabmach/RandomLitB](https://github.com/rabmach/RandomLitB)
+  (its repo remains a thing of its own; this is a convenience copy).
 
 ## Run
 

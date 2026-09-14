@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Show the weather, then the forecast, paged so it stays on screen.
+{ ~/bin/weather.sh; ~/bin/forecast.sh; } | less -R

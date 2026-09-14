@@ -1,4 +1,5 @@
 #!/bin/sh
+#2026 machiner opencode
 # George launcher. One file, both layouts:
 #   - repo/clone: george.py lives next to bin/ ($here resolution)
 #   - installed copy at ~/bin/george: george.py lives in ~/george
@@ -20,8 +21,15 @@ here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 if [ -f "$here/../george.py" ]; then
     GEORGE_PY="$here/../george.py"
 else
+    here="$HOME/george/bin"
     GEORGE_PY="$HOME/george/george.py"
 fi
+
+# Vendored button scripts ride along: put this repo's bin/ (the repo
+# clone) or ~/george/bin (installed copy) first on PATH so the shipped
+# buttons.toml works on any machine without a separate install step.
+[ -d "$here" ] && PATH="$here:$PATH"
+export PATH
 
 if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ] && [ "$#" -gt 0 ]; then
     # One-shot runs (e.g. --self-test) never need tmux; on a console they

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Start SimpleScreenRecorder recording.
+exec simplescreenrecorder --start-recording

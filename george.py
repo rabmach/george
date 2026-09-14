@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """george -- jetson-grade control center.
-
+2026 machiner opencode
 A clickable TUI dashboard for an openbox desktop: system info panes,
 config-driven launch buttons for ~/bin, calendar + nag + events,
 window chips for running/minimized apps, RSS/link slots, and an
@@ -21,6 +21,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import webbrowser
@@ -1860,8 +1861,9 @@ class App:
         self.spawn({"cmd": "nag in 15"}, "nag set for 15 minutes")
 
     def do_greet(self):
+        greet = shutil.which("greet.sh") or str(Path("~/bin/greet.sh").expanduser())
         try:
-            subprocess.Popen([str(Path("~/bin/greet.sh").expanduser())],
+            subprocess.Popen([greet],
                              stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL,
@@ -2585,10 +2587,8 @@ def selftest():
     chk("atom parse", got and got[0][0] == "C" and got[0][1] == "http://c")
     chk("rss garbage", parse_feed(b"<not-xml") is None)
 
-    tmp = Path("/tmp/opencode/fr-test")
-    if tmp.exists():
-        shutil.rmtree(tmp)
-    (tmp / "sub").mkdir(parents=True)
+    tmp = Path(tempfile.mkdtemp(prefix="george-fr-test-"))
+    (tmp / "sub").mkdir()
     (tmp / "a.txt").write_text("foo bar foo\nbaz foo\n")
     (tmp / "sub" / "b.txt").write_text("just foo here\n")
     (tmp / "skipme.bin").write_bytes(b"\xff\xfe\x00foo")

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Edit the Openbox menu.xml.
+exec x-text-editor ~/.config/openbox/menu.xml

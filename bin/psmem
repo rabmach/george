@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# List processes sorted by memory usage.
+exec ps auxf | sort -nr -k 4

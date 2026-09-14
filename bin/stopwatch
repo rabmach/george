@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Stopwatch: prints the time, waits for Ctrl+D, then reports the elapsed time.
+date
+echo "Press CTRL+D to stop"
+time read

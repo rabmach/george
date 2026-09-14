@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Show live network listeners, excluding CLOSE_WAIT.
+exec netstat -alnp --protocol=inet | grep -v CLOSE_WAIT | cut -c-6,21-94 | tail +2

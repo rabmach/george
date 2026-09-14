@@ -3,7 +3,32 @@ __pycache__/
 *.bak-fr
 george-crash.log
 
-# Personal scripts stay private — only bin/george (the launcher) ships.
-# Ignore every other file under bin/ so they never leak.
+# bin/ ships: the launcher plus the vendored scripts the shipped
+# buttons.toml (and the NINA / CH 57 chips) ask for. Everything else
+# that may sit here locally (drafts, *.bak-*, personal extras) stays
+# untracked on purpose.
 /bin/*
 !/bin/george
+!/bin/batt
+!/bin/forecast.sh
+!/bin/guts
+!/bin/healthcheck.sh
+!/bin/listening
+!/bin/lotto
+!/bin/menu
+!/bin/myip
+!/bin/nag
+!/bin/nap
+!/bin/nina.sh
+!/bin/nina.tsv
+!/bin/ports
+!/bin/psmem
+!/bin/psmem10
+!/bin/remind
+!/bin/rltb.sh
+!/bin/router
+!/bin/ssr
+!/bin/stopwatch
+!/bin/tunes
+!/bin/weather
+!/bin/weather.sh

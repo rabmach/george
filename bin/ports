@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Show listening TCP/UDP ports (netstat).
+exec netstat -tulanp

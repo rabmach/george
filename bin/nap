@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Suspend the machine.
+exec systemctl suspend
