@@ -770,6 +770,7 @@ class Bar(urwid.WidgetWrap):
         self._ranges = []
         self._wm_txt = None
         self._wm_ts = 0.0
+        self._wm_dead = False
         self._t = urwid.Text("")
         super().__init__(urwid.AttrMap(self._t, "bar"))
 
@@ -999,6 +1000,16 @@ class App:
             del self.status_walker[:]
             self.status_walker.extend(self.loglines)
             self.status_walker.set_focus(len(self.status_walker) - 1)
+        # persistent error log: survives restarts, so crashes/tick traces
+        # from BEFORE the UI was up (or after it died) are never lost
+        if attr in ("crit", "warn"):
+            try:
+                DATA_DIR.mkdir(parents=True, exist_ok=True)
+                with (DATA_DIR / "george-error.log").open("a") as f:
+                    f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}"
+                            f" [{attr}] {msg}\n")
+            except OSError:
+                pass
 
     def spawn(self, spec, label=None):
         cmd = spec.get("cmd", "").strip()
@@ -2136,6 +2147,12 @@ class App:
             self.bar.update(width)
         except Exception as e:
             self.log(f"tick error: {e}", "crit")
+            try:
+                import traceback
+                with (DATA_DIR / "george-error.log").open("a") as f:
+                    traceback.print_exc(file=f)
+            except OSError:
+                pass
         self.loop.set_alarm_in(STAT_EVERY, self.tick_stats)
 
     def tick_clock(self, loop=None, data=None):

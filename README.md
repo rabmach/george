@@ -9,6 +9,15 @@ george in X
 george in a tty:
 ![george tty](george-in-tty.jpg)
 
+**Prerequisites**
+```
+sudo apt install python3-urwid alacritty wmctrl xdotool x11-utils tmux mpv
+```
+
+`wmctrl` is NOT optional on X: george maximizes itself at startup, keeps the
+top-bar window chips, and identifies its own window through it. A fresh
+install without it will boot the dashboard but never fill the screen.
+
 
 - **LAUNCH** column — config-driven buttons that launch whatever is on your
   `$PATH` (your own scripts, apps, system tools). Configure in `buttons.toml`
