@@ -58,7 +58,7 @@ items = [
 title = "APPS"
 items = [
   { label = "passwords",  cmd = "keepassxc" },
-  #{ label = "lockd",      cmd = "lockd" },
+  { label = "lockd",      cmd = "lockd" },
   { label = "firefox",    cmd = "firefox -no-remote" },
   { label = "mail",       cmd = "claws-mail" },
   { label = "thunar",     cmd = "thunar" },
@@ -137,6 +137,6 @@ label = "WICN"
 # tools/update-nina.py); one-audio: starting nina freezes radio,
 # stopping it resumes it.
 
-[nina]
-cmd = "nina.sh"
-label = "NINA"
+#[nina]
+#cmd = "nina.sh"
+#label = "NINA"
