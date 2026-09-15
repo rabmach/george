@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """george -- jetson-grade control center.
-2026 machiner opencode
+2026 machiner opencode(GLM-5.3-Flash)
 A clickable TUI dashboard for an openbox desktop: system info panes,
 config-driven launch buttons for ~/bin, calendar + nag + events,
 window chips for running/minimized apps, RSS/link slots, and an
