@@ -194,6 +194,10 @@ wherever you cloned george:
 george maximizes itself at startup via wmctrl (EWMH), so no window-manager
 config is touched. Works under any EWMH-compliant WM.
 
+george colors for a dark terminal — it picks up whatever scheme your
+terminal already has, so a dark scheme makes it look right. A stock
+light profile (bare xterm, default GNOME Terminal) will wash it out.
+
 ## Self test
 
     python3 george.py --self-test

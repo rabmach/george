@@ -46,7 +46,7 @@ items = [
   { label = "forecast",   cmd = "forecast.sh", term = true },
   { label = "remind",     cmd = "remind",   term = true },
   { label = "nap",        cmd = "nap",      term = true },
-  { label = "word",       cmd = "swriter",  term = false },
+  { label = "word",       cmd = "lowriter", term = false },
   { label = "lotto",      cmd = "lotto",    term = true },
   { label = "openbox menu.xml", cmd = "menu" },
   { label = "find & replace",   cmd = "__fr__" },

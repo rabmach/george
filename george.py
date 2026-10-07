@@ -652,7 +652,7 @@ PALETTE = [
     ("ok",       "light green",  ""),
     ("warn",     "yellow",       ""),
     ("crit",     "light red",    ""),
-    ("dim",      "dark gray",    ""),
+    ("dim",      "brown",        ""),
     ("foot",     "brown",        ""),
     ("accent",   "light blue", ""),
     ("info",     "light blue",   ""),
