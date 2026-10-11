@@ -499,8 +499,18 @@ def self_win_id():
     txt = wm_raw()
     if not txt:
         return None
-    for wid, _title, cls in parse_wm(txt):
+    host = os.uname().nodename.lower()
+    for wid, title, cls in parse_wm(txt):
         if cls.lower().startswith(APP + "s"):
+            return wid
+        # Fallback surface (any x-terminal-emulator): several terminals
+        # won't carry our --class (ghostty 1.3 ignores it outright), so
+        # also accept the EXACT title the launcher opens with. Some
+        # terminals prefix the hostname; anything titling itself
+        # "george..." otherwise - file-manager windows on the ~/george
+        # folder, opencode sessions - stays theirs.
+        t = title.strip().lower()
+        if t == APP or t == f"{host} {APP}":
             return wid
     return None
 
@@ -714,6 +724,21 @@ def ensure_terminal_pane(session=GEORGE_TMUX):
     return "terminal failed"
 
 
+def surface_argv(short_title):
+    """Terminal window opening, same rule as the launcher (bin/george):
+    alacritty is the tuned face - we set WM_CLASS there so placement and
+    the WM rule find the window. On a box without alacritty, ANY
+    x-terminal-emulator is honored with title-only equals-form flags
+    (several terminals reject space form; ghostty 1.3 refuses --class).
+    Returns the argv prefix, or None when no terminal exists."""
+    if shutil.which("alacritty"):
+        return ["alacritty", "--title", short_title]
+    alt = shutil.which("x-terminal-emulator")
+    if alt:
+        return [alt, f"--title={short_title}"]
+    return None
+
+
 def build_term_argv(cmd, label=None):
     safe = re.sub(r"[^A-Za-z0-9_-]+", "_", label or cmd)[:24]
     script = (f"{cmd}\n"
@@ -721,8 +746,8 @@ def build_term_argv(cmd, label=None):
               "echo\n"
               'echo "--- george: exit $rc | enter closes ---"\n'
               "read -r _\n")
-    return ["alacritty", "--title", f"george:{safe}",
-            "-e", "bash", "-c", script]
+    base = surface_argv(f"george:{safe}")
+    return base + ["-e", "bash", "-c", script]
 
 
 class Click(urwid.WidgetWrap):
@@ -791,11 +816,16 @@ class Bar(urwid.WidgetWrap):
             self._t.set_text(f" GEORGE {' ' * pad}{right}")
             return
         seen = set()
+        host = os.uname().nodename.lower()
         for wid, title, cls in parse_wm(txt):
             cl = cls.lower()
             if any(cl.startswith(x) for x in WM_EXCLUDE_CLASSES):
                 continue
             if title == "Desktop" or not title.strip():
+                continue
+            # fallback-surface george shows title-only (no georges class)
+            t = title.strip().lower()
+            if t == APP or t == f"{host} {APP}":
                 continue
             if wid in seen:
                 continue
@@ -1033,8 +1063,10 @@ class App:
                 argv = build_term_argv(cmd, label)
             else:
                 safe = re.sub(r"[^A-Za-z0-9_-]+", "_", label or cmd)[:24]
-                argv = ["alacritty", "--title", f"george:{safe}",
-                        "-e"] + argv
+                base = surface_argv(f"george:{safe}")
+                if base is None:
+                    base = ["/bin/sh", "-c"]  # no window to hold; run detached
+                argv = base + ["-e"] + argv
         try:
             # stdin=DEVNULL is the whole point: a child that inherits the
             # dashboard's pty (e.g. a TUI app launched without term=true)
@@ -1712,13 +1744,15 @@ class App:
             self.log("pop-out needs X", "warn")
             return
         try:
+            base = surface_argv("george:popout") + (
+                ["--class", "popout"]
+                if shutil.which("alacritty") else [])
             subprocess.Popen(
-                ["alacritty", "--title", "george:popout", "--class", "popout",
-                 "-e", os.environ.get("SHELL", "/bin/bash")],
+                base + ["-e", os.environ.get("SHELL", "/bin/bash")],
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL, start_new_session=True)
             self.log("terminal popped out (own window, native scroll)", "accent")
-        except OSError as e:
+        except (OSError, TypeError) as e:
             self.log(f"pop-out failed: {e}", "crit")
 
     def do_term(self):
@@ -2664,11 +2698,21 @@ def selftest():
     app.close_modal()
 
     av = build_term_argv("guts", "guts (inxi)")
-    chk("term argv shape", av[0] == "alacritty" and av[1] == "--title"
-        and av[3:5] == ["-e", "bash"] and av[5] == "-c")
-    chk("term title sanitized", av[2] == "george:guts_inxi_")
-    chk("term holds", "read -r _" in av[6] and "rc=$?" in av[6]
-        and "guts" in av[6])
+    # shape is surface-dependent: argv[0]/[1] differ between alacritty
+    # (space form, "--title") and a generic x-terminal-emulator (equals
+    # form, "--title=..."). The invariant is the tail: -e bash -c.
+    if shutil.which("alacritty"):
+        chk("term argv shape (alacritty)", av[0] == "alacritty"
+            and av[1] == "--title" and av[3:5] == ["-e", "bash"]
+            and av[5] == "-c")
+        chk("term title sanitized", av[2] == "george:guts_inxi_")
+    else:
+        chk("term argv shape (xte)", av[0].endswith("x-terminal-emulator")
+            and av[1] == "--title=george:guts_inxi_"
+            and av[2:4] == ["-e", "bash"] and av[3] == "-c")
+        chk("term title sanitized", av[1].startswith("--title=george:"))
+    chk("term holds", "read -r _" in av[-1] and "rc=$?" in av[-1]
+        and "guts" in av[-1])
 
     print(f"selftest: {len(fails)} failed")
     for f in fails:

@@ -205,11 +205,20 @@ light profile (bare xterm, default GNOME Terminal) will wash it out.
 Covers cpu/net math, wmctrl parsing, calendar grid, RSS+Atom parsing, the
 full find&replace engine against a scratch tree, event round-trips.
 
-Requires: python3-urwid (Python ≥ 3.11 for stdlib `tomllib`); on X: alacritty,
-wmctrl, xdotool, xprop (x11-utils), and `tmux` (for the built-in terminal
-panes — Ctrl+t flips focus; already present on most Debian installs). On a
-bare console tty only `tmux` is needed — the console itself is the terminal,
-and the launcher builds the same two-pane session there. Running
+george arrives complete, sans DORiS: the launcher checks its own
+dependencies at startup and, on Debian, offers one interactive
+`sudo apt install` (never at login, never from a menu launch). The
+check covers python3-urwid (Python ≥ 3.11 for stdlib `tomllib`),
+`tmux` (built-in terminal panes — Ctrl+t flips focus), and on X:
+wmctrl, xdotool, xprop (x11-utils), alacritty. On a bare console tty
+only `tmux` is needed — the console itself is the terminal.
 `python3 george.py` bare (no launcher) needs nothing but urwid. The
-CH 57/59 buttons additionally need `mpv`. Nothing else — the embedded-video
-helper is long gone; channels are plain launcher buttons.
+CH 57/59 buttons additionally need `mpv`.
+
+george runs with any `x-terminal-emulator`: alacritty is the tuned
+face (WM_CLASS, self-placement and the undecorated maximized start
+are plumbed for it), and any other emulator is honored as a fallback
+(title-only flags; self-placement then keys on the window title). It
+may run better in alacritty — and every other keybind, chip, pane and
+control works either way. Nothing else — the embedded-video helper is
+long gone; channels are plain launcher buttons.

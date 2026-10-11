@@ -41,10 +41,80 @@ fi
 SESSION="${GEORGE_TMUX_SESSION:-george}"
 TMUX_CFG="$HOME/.config/george/tmux.conf"
 
+# george arrives complete, sans DORiS: the launcher is the installer
+# entry point too. It knows its own dependencies, and on Debian offers
+# to fit them right here (interactive launch only - never a sudo prompt
+# at login, never a surprise in a menu). Missing wmctrl degraded the bar
+# quietly for three fresh installs before anyone saw why; the point of
+# this block is that "window chips disabled" should never be the user's
+# first clue. The kit (DORiS core.list) carries the same line - two
+# layers, same truth.
+want_missing() {
+    MISSING=""
+    python3 -c "import urwid, tomllib" 2>/dev/null || MISSING="python3-urwid"
+    command -v tmux >/dev/null 2>&1 || MISSING="$MISSING tmux"
+    if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        command -v alacritty >/dev/null 2>&1 || MISSING="$MISSING alacritty"
+        command -v wmctrl >/dev/null 2>&1 || MISSING="$MISSING wmctrl"
+        command -v xprop >/dev/null 2>&1 || MISSING="$MISSING x11-xserver-utils"
+        command -v xdotool >/dev/null 2>&1 || MISSING="$MISSING xdotool"
+    fi
+    MISSING="${MISSING# }"
+}
+
+want_missing
+if [ -n "$MISSING" ] && command -v apt-get >/dev/null 2>&1 && [ -t 0 ]; then
+    printf "george needs: %s\ninstall them now [y/N]? " "$MISSING"
+    read -r _ans || true
+    case "${_ans:-n}" in
+        y|Y*) sudo apt-get install -y $MISSING; want_missing ;;
+    esac
+fi
+
+# Fatal gap (urwid): george.py cannot start at all - say it plainly, and
+# say it with the apt line so the fix is copy-paste, not a scavenger hunt.
+if python3 -c "import urwid, tomllib" 2>/dev/null; then :
+else
+    echo "george cannot run: urwid missing."
+    echo "  sudo apt-get install python3-urwid"
+    exit 1
+fi
+# ---- surface abstraction. george runs with any x-terminal-emulator,
+# but alacritty is the TUNED face: there george sets WM_CLASS (so the
+# openbox rule no-decorates/maximizes, and self-placement keys on it).
+# Any other x-terminal-emulator is honored as a fallback on its own
+# terms: title-only flags in the polite equals form (ghostty et al.
+# reject space-form flags - the "title: value required" noise), no
+# --class (several terminals refuse one outright). The caveat stated
+# rather than swept: it may run better in alacritty - fallback windows
+# are found by exact title, and -e argument grammar varies by terminal
+# (konsole technically wants one string). Dashboard, chips, tmux pane
+# and Ctrl+t all still work; only the styling plumbing is looser.
+run_surface() { # [--detach] cmd args...  opens george's main window
+    # No hard failure: callers degrade to the bare dashboard (rc 64).
+    _det=""
+    if [ "$1" = "--detach" ]; then _det="setsid -f"; shift; fi
+    if command -v alacritty >/dev/null 2>&1; then
+        exec $_det alacritty --title george --class georges -e "$@"
+    elif command -v x-terminal-emulator >/dev/null 2>&1; then
+        exec $_det x-terminal-emulator --title=george -e "$@"
+    fi
+    return 64
+}
+
+# X mode with NO terminal at all: degrade to the bare dashboard in the
+# caller's terminal instead of failing the exec further down (same
+# degrade ladder as tmux).
+if { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } \
+        && ! command -v alacritty >/dev/null 2>&1 \
+        && ! command -v x-terminal-emulator >/dev/null 2>&1; then
+    echo "george: no alacritty/x-terminal-emulator - plain dashboard here"
+    exec python3 "$GEORGE_PY"
+fi
+
 # One-shot diagnostics (e.g. --self-test) run in a plain window, no tmux.
 if [ "$#" -gt 0 ]; then
-    exec alacritty --title george --class georges \
-        -e python3 "$GEORGE_PY" "$@"
+    run_surface python3 "$GEORGE_PY" "$@" || exec python3 "$GEORGE_PY" "$@"
 fi
 
 ensure_tmux_cfg() {
@@ -122,15 +192,16 @@ if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
     # Healthy session exists? Attach to it and keep george running
     # (detached when launched from an interactive terminal).
     if session_healthy "$SESSION"; then
-        if [ -t 0 ] && command -v alacritty >/dev/null 2>&1; then
-            setsid -f alacritty --title george --class georges \
-                -e tmux -2 -f "$TMUX_CFG" attach-session -t "$SESSION" \
-                </dev/null >/dev/null 2>&1
+        if [ -t 0 ]; then
+            run_surface --detach tmux -2 -f "$TMUX_CFG" attach-session \
+                -t "$SESSION" \
+                </dev/null >/dev/null 2>&1 \
+                || exec python3 "$GEORGE_PY"
             echo "george: attached (detached) - window opening, prompt is yours"
             exit 0
         fi
-        exec alacritty --title george --class georges \
-            -e tmux -2 -f "$TMUX_CFG" attach-session -t "$SESSION"
+        run_surface tmux -2 -f "$TMUX_CFG" attach-session -t "$SESSION" \
+            || exec python3 "$GEORGE_PY"
     fi
 
     # Any leftover session here is a dead/stale one - rebuild from scratch.
@@ -221,21 +292,23 @@ say_fallback() {
 
 if ! build_session; then
     say_fallback "tmux build failed"
-    if [ -t 0 ] && command -v alacritty >/dev/null 2>&1; then
-        setsid -f alacritty --title george --class georges \
-            -e python3 "$GEORGE_PY" </dev/null >/dev/null 2>&1
-        echo "george: fallback dashboard spawned detached"
-        exit 0
+    if [ -t 0 ]; then
+        if run_surface --detach python3 "$GEORGE_PY" </dev/null >/dev/null 2>&1; then
+            echo "george: fallback dashboard spawned detached"
+            exit 0
+        fi
+        exec python3 "$GEORGE_PY"
     fi
-    exec alacritty --title george --class georges -e python3 "$GEORGE_PY"
+    run_surface python3 "$GEORGE_PY" || exec python3 "$GEORGE_PY"
 fi
 
-if [ -t 0 ] && command -v alacritty >/dev/null 2>&1; then
-    setsid -f alacritty --title george --class georges \
-        -e tmux -2 -f "$TMUX_CFG" attach-session -t "$SESSION" \
-        </dev/null >/dev/null 2>&1
-    echo "george: spawned detached - window opening, prompt is yours"
-    exit 0
+if [ -t 0 ]; then
+    if run_surface --detach tmux -2 -f "$TMUX_CFG" attach-session \
+            -t "$SESSION" </dev/null >/dev/null 2>&1; then
+        echo "george: spawned detached - window opening, prompt is yours"
+        exit 0
+    fi
+    exec python3 "$GEORGE_PY"
 fi
-exec alacritty --title george --class georges \
-    -e tmux -2 -f "$TMUX_CFG" attach-session -t "$SESSION"
+run_surface tmux -2 -f "$TMUX_CFG" attach-session -t "$SESSION" \
+    || exec python3 "$GEORGE_PY"
